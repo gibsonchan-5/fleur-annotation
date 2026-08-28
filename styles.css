@@ -404,6 +404,11 @@
   cursor: pointer;
 }
 
+.fleur-card-text.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
 .fleur-card-actions {
   flex-shrink: 0;
   display: flex;
@@ -560,10 +565,15 @@
   line-height: 1.5;
   color: var(--text-normal);
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  pointer-events: none;
+  pointer-events: auto;
+  opacity: 0;
   transition: opacity 0.15s ease;
   cursor: default;
   user-select: text;
+}
+
+.fleur-annotation-tooltip.is-visible {
+  opacity: 1;
 }
 
 /* ══════════════════════════════════════════════
@@ -640,4 +650,15 @@
 
 .fleur-test-error {
   color: var(--text-error) !important;
+}
+
+/* ══════════════════════════════════════════════
+   状态辅助类
+   ═══════════════════════════════════════════════ */
+.fleur-hidden {
+  display: none !important;
+}
+
+.fleur-ai-send-btn.is-streaming {
+  background: var(--background-modifier-hover);
 }

@@ -1,6 +1,6 @@
 {
   "name": "fleur-annotation",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Markdown 智能阅读与标注插件",
   "main": "main.js",
   "scripts": {

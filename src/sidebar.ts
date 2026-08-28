@@ -134,7 +134,7 @@ export class SidebarView extends ItemView {
       ? (ann.color || '#E8590C')
       : (ann.color || '#FFC107');
     bar.addClass('fleur-card-bar');
-    bar.style.background = barColor;
+    bar.setCssStyles({ background: barColor });
 
     // 主体
     const main = card.createDiv();
@@ -167,8 +167,7 @@ export class SidebarView extends ItemView {
     textEl.addEventListener('click', (e) => {
       e.stopPropagation();
       expanded = !expanded;
-      textEl.style.display = expanded ? 'block' : '-webkit-box';
-      (textEl.style as any).webkitLineClamp = expanded ? 'unset' : '3';
+      textEl.toggleClass('is-expanded', expanded);
     });
 
     // 操作按钮（悬停显示）
@@ -250,8 +249,8 @@ export class SidebarView extends ItemView {
     textarea.value = ann.comment || '';
     textarea.addClass('fleur-comment-textarea');
     textarea.addEventListener('input', () => {
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 400) + 'px';
+      textarea.setCssStyles({ height: 'auto' });
+      textarea.setCssStyles({ height: `${Math.min(textarea.scrollHeight, 400)}px` });
     });
     textarea.focus();
 

@@ -123,12 +123,14 @@ export class AIChatPanel {
 
     this.panelEl = document.body.createDiv();
     this.panelEl.addClass('fleur-ai-panel');
-    // 动态位置/尺寸保留内联
-    this.panelEl.style.top = `${top}px`;
-    this.panelEl.style.left = `${left}px`;
-    this.panelEl.style.right = 'auto';
-    this.panelEl.style.width = `${panelWidth}px`;
-    this.panelEl.style.height = `${panelHeight}px`;
+    // 动态位置/尺寸通过 setCssStyles 设置
+    this.panelEl.setCssStyles({
+      top: `${top}px`,
+      left: `${left}px`,
+      right: 'auto',
+      width: `${panelWidth}px`,
+      height: `${panelHeight}px`
+    });
 
     // 动画 keyframes 已移至 styles.css
 
@@ -210,7 +212,7 @@ export class AIChatPanel {
     rectStop.setAttribute('width', '12'); rectStop.setAttribute('height', '12');
     rectStop.setAttribute('rx', '1');
     svgStop.appendChild(rectStop);
-    svgStop.style.display = 'none';
+    svgStop.addClass('fleur-hidden');
     iconWrap.appendChild(svgStop);
     this.stopIconEl = svgStop as unknown as HTMLSpanElement;
     this.sendBtn.addClass('fleur-ai-send-btn');
@@ -238,9 +240,11 @@ export class AIChatPanel {
     if (!this.isDragging || !this.panelEl) return;
     const x = e.clientX - this.dragOffsetX;
     const y = e.clientY - this.dragOffsetY;
-    this.panelEl.style.left = `${x}px`;
-    this.panelEl.style.top = `${y}px`;
-    this.panelEl.style.right = 'auto';
+    this.panelEl.setCssStyles({
+      left: `${x}px`,
+      top: `${y}px`,
+      right: 'auto'
+    });
   };
 
   private onDragEnd = () => {
@@ -266,8 +270,10 @@ export class AIChatPanel {
       if (!this.isResizing || !this.panelEl) return;
       const w = startW + (e.clientX - startX);
       const h = startH + (e.clientY - startY);
-      this.panelEl.style.width = `${Math.max(320, w)}px`;
-      this.panelEl.style.height = `${Math.max(300, h)}px`;
+      this.panelEl.setCssStyles({
+        width: `${Math.max(320, w)}px`,
+        height: `${Math.max(300, h)}px`
+      });
     };
     const onUp = () => {
       this.isResizing = false;
@@ -474,15 +480,9 @@ export class AIChatPanel {
 
   private updateSendButton() {
     if (!this.sendBtn || !this.sendIconEl || !this.stopIconEl) return;
-    if (this.isStreaming) {
-      this.sendIconEl.style.display = 'none';
-      this.stopIconEl.style.display = '';
-      this.sendBtn.style.background = 'var(--background-modifier-hover)';
-    } else {
-      this.sendIconEl.style.display = '';
-      this.stopIconEl.style.display = 'none';
-      this.sendBtn.style.background = 'var(--background-secondary)';
-    }
+    this.sendBtn.toggleClass('is-streaming', this.isStreaming);
+    this.sendIconEl.toggleClass('fleur-hidden', this.isStreaming);
+    this.stopIconEl.toggleClass('fleur-hidden', !this.isStreaming);
   }
 
   private isChinese(text: string): boolean {

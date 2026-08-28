@@ -401,8 +401,6 @@ export class MarkdownPatcher {
     this.tooltipEl = document.body.createDiv('fleur-annotation-tooltip');
     this.tooltipEl.dataset['tooltipFor'] = annotationId;
     this.tooltipEl.addClass('fleur-annotation-tooltip');
-    this.tooltipEl.style.pointerEvents = 'auto';
-    this.tooltipEl.style.opacity = '0';
     const cleanText = stripMarkdown(annotation.comment || '');
     this.tooltipEl.textContent = cleanText;
 
@@ -419,16 +417,18 @@ export class MarkdownPatcher {
 
     // 定位到气泡图标下方
     const rect = bubble.getBoundingClientRect();
-    this.tooltipEl.style.left = `${rect.left}px`;
-    this.tooltipEl.style.top = `${rect.bottom + 6}px`;
+    this.tooltipEl.setCssStyles({
+      left: `${rect.left}px`,
+      top: `${rect.bottom + 6}px`
+    });
 
     document.body.appendChild(this.tooltipEl);
-    requestAnimationFrame(() => { this.tooltipEl!.style.opacity = '1'; });
+    requestAnimationFrame(() => { this.tooltipEl!.addClass('is-visible'); });
 
     // 如果气泡超出屏幕底部，翻到上方
     const tooltipRect = this.tooltipEl.getBoundingClientRect();
     if (tooltipRect.bottom > window.innerHeight - 10) {
-      this.tooltipEl.style.top = `${rect.top - tooltipRect.height - 6}px`;
+      this.tooltipEl.setCssStyles({ top: `${rect.top - tooltipRect.height - 6}px` });
     }
   }
 
@@ -444,7 +444,7 @@ export class MarkdownPatcher {
       this.tooltipHideTimer = null;
     }
     if (this.tooltipEl) {
-      this.tooltipEl.style.opacity = '0';
+      this.tooltipEl.removeClass('is-visible');
       setTimeout(() => {
         this.tooltipEl?.remove();
         this.tooltipEl = null;

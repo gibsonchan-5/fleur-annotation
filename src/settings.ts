@@ -164,12 +164,7 @@ export class FleurSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.systemPrompt)
         .then(textArea => {
           textArea.inputEl.rows = 6;
-          textArea.inputEl.style.width = '100%';
-          textArea.inputEl.style.resize = 'vertical';
-          textArea.inputEl.style.fontFamily = 'inherit';
-          textArea.inputEl.style.fontSize = '13px';
-          textArea.inputEl.style.lineHeight = '1.5';
-          textArea.inputEl.style.padding = '8px 10px';
+          textArea.inputEl.addClass('fleur-setting-textarea');
         })
         .onChange(async (value) => {
           this.plugin.settings.systemPrompt = value.trim();
@@ -202,20 +197,20 @@ export class FleurSettingTab extends PluginSettingTab {
             });
             if (response.ok) {
               btn.setButtonText('✓ 连接成功');
-              btn.buttonEl.style.color = 'var(--text-success)';
+              btn.buttonEl.addClass('fleur-test-success');
             } else {
               const body = await response.text();
               btn.setButtonText(`✗ 失败 (${response.status})`);
-              btn.buttonEl.style.color = 'var(--text-error)';
+              btn.buttonEl.addClass('fleur-test-error');
             }
           } catch (e) {
             btn.setButtonText('✗ 网络错误');
-            btn.buttonEl.style.color = 'var(--text-error)';
+            btn.buttonEl.addClass('fleur-test-error');
           }
           setTimeout(() => {
             btn.setButtonText('测试');
             btn.setDisabled(false);
-            btn.buttonEl.style.color = '';
+            btn.buttonEl.removeClass('fleur-test-success', 'fleur-test-error');
           }, 3000);
         });
     });

@@ -1,6 +1,292 @@
-/* FleurAnnotation 样式 - 完全对标 FleurPDF */
+/* FleurAnnotation 样式 */
 
-/* 侧边栏 */
+/* ══════════════════════════════════════════════
+   AI 浮动面板动画
+   ═══════════════════════════════════════════════ */
+@keyframes fleurPanelIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════════
+   AI 浮动面板（AIChatPanel）
+   ═══════════════════════════════════════════════ */
+.fleur-ai-panel {
+  position: fixed;
+  right: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.14);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  animation: fleurPanelIn 0.18s ease-out;
+}
+
+.fleur-ai-header {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  background: var(--background-primary);
+  cursor: grab;
+  user-select: none;
+}
+
+.fleur-ai-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-normal);
+}
+
+.fleur-ai-close-btn {
+  width: 26px; height: 26px;
+  border: none; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+.fleur-ai-close-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.fleur-ai-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 8px;
+}
+
+.fleur-ai-footer {
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-shrink: 0;
+  background: var(--background-primary);
+}
+
+.fleur-ai-input {
+  flex: 1;
+  min-height: 34px;
+  max-height: 100px;
+  padding: 7px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  resize: none;
+  font-size: 13px;
+  line-height: 1.5;
+  font-family: inherit;
+  color: var(--text-normal);
+  background: var(--background-primary);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+.fleur-ai-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.fleur-ai-send-btn {
+  width: 36px; height: 36px;
+  border: none;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.fleur-ai-send-btn:hover {
+  background: var(--background-modifier-hover);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+.fleur-ai-send-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fleur-ai-resize-handle {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 20px; height: 20px;
+  cursor: nwse-resize;
+  z-index: 10001;
+}
+
+/* ══════════════════════════════════════════════
+   AI 消息气泡
+   ═══════════════════════════════════════════════ */
+.fleur-msg {
+  margin-bottom: 12px;
+}
+.fleur-msg-user {
+  margin-left: auto;
+  max-width: 85%;
+  width: fit-content;
+}
+.fleur-msg-assistant {
+  margin-right: auto;
+  max-width: 90%;
+}
+
+.fleur-bubble {
+  padding: 10px 14px;
+  border-radius: 10px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.fleur-bubble-user {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.fleur-bubble-assistant {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.fleur-msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding-left: 4px;
+}
+
+.fleur-msg-action-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════
+   CommentModal（批注弹窗）
+   ══════════════════════════════════════════════ */
+.fleur-annotation-comment-modal {
+  width: 520px !important;
+  max-width: 90vw !important;
+}
+
+.fleur-annotation-comment-modal .modal-content {
+  padding: 24px 28px 20px !important;
+}
+
+.fleur-annotation-comment-modal textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.fleur-modal-title {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-normal);
+  letter-spacing: -0.01em;
+}
+
+.fleur-modal-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.fleur-modal-preview {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  padding: 10px 14px;
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 20px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.fleur-modal-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.fleur-modal-textarea:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover, rgba(99,102,241,0.15));
+}
+
+.fleur-modal-btn-row {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.fleur-modal-btn-cancel {
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.fleur-modal-btn-cancel:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.fleur-modal-btn-confirm {
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.fleur-modal-btn-confirm:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* ══════════════════════════════════════════════
+   侧边栏
+   ═══════════════════════════════════════════════ */
 .fleur-sidebar {
   padding: 12px;
   font-size: 14px;
@@ -16,61 +302,30 @@
 }
 
 .fleur-sidebar-title {
-  font-size: 16px;
-  font-weight: bold;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-normal);
 }
 
-.fleur-sidebar-search {
-  width: 100%;
-  margin-bottom: 12px;
-  padding: 6px 10px;
+.fleur-sidebar-export-btn {
+  font-size: 12px;
+  padding: 4px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
-  font-size: 13px;
   background: var(--background-primary);
-  color: var(--text-normal);
-}
-
-.fleur-sidebar-group {
-  margin-bottom: 12px;
-}
-
-.fleur-sidebar-page {
-  font-size: 13px;
-  font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 6px;
-  padding: 4px 0;
-}
-
-.fleur-sidebar-item {
-  padding: 8px 10px;
-  margin-bottom: 4px;
-  border-radius: 4px;
-  background: var(--background-secondary);
   cursor: pointer;
-  transition: background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fleur-sidebar-export-btn:hover {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
 }
 
-.fleur-sidebar-item:hover {
-  background: var(--background-modifier-hover);
-}
-
-.fleur-sidebar-text {
-  font-size: 13px;
-  color: var(--text-normal);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.fleur-sidebar-comment {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
+.fleur-sidebar-body {
+  padding: 4px 0 24px;
 }
 
 .fleur-sidebar-empty {
@@ -80,145 +335,247 @@
   font-size: 13px;
 }
 
-/* AI 对话框 */
-.fleur-ai-modal {
-  position: fixed;
-  right: 20px;
-  top: 80px;
-  width: 380px;
-  max-height: 70vh;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.fleur-ai-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-}
-
-.fleur-ai-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-normal);
-}
-
-.fleur-ai-close {
-  background: none;
-  border: none;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--text-muted);
-  padding: 0;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: background 0.15s;
-}
-
-.fleur-ai-close:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
-.fleur-ai-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.fleur-ai-message {
-  padding: 10px 14px;
-  border-radius: 8px;
-  line-height: 1.5;
-  max-width: 85%;
-  word-wrap: break-word;
-}
-
-.fleur-ai-message.user {
-  align-self: flex-end;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  width: fit-content;
-}
-
-.fleur-ai-message.assistant {
-  align-self: flex-start;
-  background: var(--background-secondary);
-  color: var(--text-normal);
-}
-
-.fleur-ai-input-area {
-  display: flex;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-}
-
-.fleur-ai-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 14px;
-  resize: none;
-}
-
-.fleur-ai-send-btn {
-  padding: 0;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 6px;
-  background: var(--background-primary);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  transition: box-shadow 0.15s;
-}
-
-.fleur-ai-send-btn:hover {
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-  color: var(--text-normal);
-}
-
-.fleur-ai-send-btn svg {
-  width: 18px;
-  height: 18px;
-}
-
-/* 错误提示 */
-.fleur-ai-modal h2 {
+.fleur-sidebar-section {
   margin-bottom: 16px;
 }
 
-.fleur-ai-error {
-  color: var(--text-error) !important;
+.fleur-sidebar-page-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  padding: 2px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  width: 100%;
 }
 
-/* AI 面板内 Markdown 渲染的排版 */
+.fleur-card {
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.fleur-card-bar {
+  height: 2px;
+}
+
+.fleur-card-main {
+  padding: 10px 12px;
+}
+
+.fleur-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.fleur-card-type-icon {
+  flex-shrink: 0;
+  width: 18px; height: 18px;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.fleur-card-text-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.fleur-card-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-normal);
+  word-break: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  cursor: pointer;
+}
+
+.fleur-card-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.fleur-card:hover .fleur-card-actions {
+  opacity: 1;
+}
+
+.fleur-card-ai-btn {
+  width: 22px; height: 22px;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fleur-card-ai-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+.fleur-card-del-btn {
+  width: 22px; height: 22px;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fleur-card-del-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-error);
+}
+
+.fleur-card-footer {
+  margin-top: 6px;
+  margin-left: 26px;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.01em;
+}
+
+.fleur-comment-slot {
+  margin-top: 8px;
+  margin-left: 26px;
+}
+
+.fleur-comment-display {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.fleur-comment-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.fleur-comment-textarea {
+  width: 100%;
+  min-height: 120px;
+  max-height: 400px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.fleur-comment-btn-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+
+.fleur-comment-save-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 4px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+
+.fleur-comment-cancel-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════
+   批注气泡
+   ═══════════════════════════════════════════════ */
+.fleur-annotation-mark {
+  cursor: pointer;
+}
+
+.fleur-annotation-bubble {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  margin-left: 2px;
+  cursor: pointer;
+  vertical-align: super;
+  line-height: 1;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.fleur-annotation-bubble:hover {
+  opacity: 1 !important;
+}
+
+/* ══════════════════════════════════════════════
+   Reading Mode tooltip
+   ═══════════════════════════════════════════════ */
+.fleur-annotation-tooltip {
+  position: fixed;
+  z-index: 99999;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-normal);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  cursor: default;
+  user-select: text;
+}
+
+/* ══════════════════════════════════════════════
+   Live Preview 模式：隐藏 %% 批注 %% 的 comment 文本
+   ═══════════════════════════════════════════════ */
+.cm-content .cm-comment {
+  display: none !important;
+}
+
+/* ═════════════════════════════════════════════
+   AI 面板内 Markdown 渲染的排版
+   ═══════════════════════════════════════════════ */
 .fleur-ai-panel h1,
 .fleur-ai-panel h2,
 .fleur-ai-panel h3,
@@ -265,68 +622,22 @@
 }
 
 /* ══════════════════════════════════════════════
-   批注弹窗（CommentModal）
+   设置页 textarea
    ═══════════════════════════════════════════════ */
-.fleur-annotation-comment-modal {
-  width: 520px !important;
-  max-width: 90vw !important;
-}
-
-.fleur-annotation-comment-modal .modal-content {
-  padding: 24px 28px 20px !important;
-}
-
-/* 去掉 Obsidian 默认给 textarea 的红色 focus 边框 */
-.fleur-annotation-comment-modal textarea:focus {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-/* ══════════════════════════════════════════════
-   Live Preview 模式：隐藏 %% 批注 %% 的 comment 文本
-   Obsidian 把 %%...%% 渲染为 .cm-comment，需要隐藏
-   ═══════════════════════════════════════════════ */
-.cm-content .cm-comment {
-  display: none !important;
-}
-
-/* AI 浮动面板动画 */
-@keyframes fleurPanelIn {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* 批注气泡样式 */
-.fleur-annotation-bubble {
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  margin-left: 2px;
-  cursor: pointer;
-  vertical-align: super;
-  line-height: 1;
-  opacity: 0.55;
-  transition: opacity 0.15s;
-}
-
-.fleur-annotation-bubble:hover {
-  opacity: 1 !important;
-}
-
-/* Reading Mode tooltip */
-.fleur-annotation-tooltip {
-  position: fixed;
-  z-index: 99999;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 10px 14px;
-  max-width: 320px;
+.fleur-setting-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-normal);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  pointer-events: none;
-  transition: opacity 0.15s ease;
+  padding: 8px 10px;
+}
+
+/* 测试连接按钮状态颜色 */
+.fleur-test-success {
+  color: var(--text-success) !important;
+}
+
+.fleur-test-error {
+  color: var(--text-error) !important;
 }

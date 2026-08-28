@@ -121,25 +121,14 @@ export class AIChatPanel {
       top = Math.max(20, top);
     }
 
-    this.panelEl = document.body.createDiv('fleur-ai-panel');
-    this.panelEl.style.cssText = `
-      position: fixed;
-      top: ${top}px;
-      left: ${left}px;
-      right: auto;
-      width: ${panelWidth}px;
-      height: ${panelHeight}px;
-      background: var(--background-primary);
-      border: 1px solid var(--background-modifier-border);
-      border-radius: 10px;
-      box-shadow: 0 8px 40px rgba(0,0,0,0.14);
-      z-index: 10000;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
-      animation: fleurPanelIn 0.18s ease-out;
-    `;
+    this.panelEl = document.body.createDiv();
+    this.panelEl.addClass('fleur-ai-panel');
+    // 动态位置/尺寸保留内联
+    this.panelEl.style.top = `${top}px`;
+    this.panelEl.style.left = `${left}px`;
+    this.panelEl.style.right = 'auto';
+    this.panelEl.style.width = `${panelWidth}px`;
+    this.panelEl.style.height = `${panelHeight}px`;
 
     // 动画 keyframes 已移至 styles.css
 
@@ -152,94 +141,28 @@ export class AIChatPanel {
 
     // 标题栏
     const header = this.panelEl.createDiv();
-    header.style.cssText = `
-      padding: 13px 18px;
-      border-bottom: 1px solid var(--background-modifier-border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-shrink: 0;
-      background: var(--background-primary);
-      cursor: grab;
-      user-select: none;
-    `;
+    header.addClass('fleur-ai-header');
     header.addEventListener('mousedown', (e) => this.onDragStart(e));
 
     const title = header.createSpan({ text: '阅读助手' });
-    title.style.cssText = `
-      font-size: 14px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-      color: var(--text-normal);
-    `;
+    title.addClass('fleur-ai-title');
 
     const closeBtn = header.createEl('button');
     closeBtn.textContent = '×';
-    closeBtn.style.cssText = `
-      width: 26px; height: 26px;
-      border: none; background: transparent;
-      color: var(--text-muted); cursor: pointer;
-      border-radius: 4px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px;
-      line-height: 1;
-      transition: all 0.15s ease;
-    `;
-    closeBtn.addEventListener('mouseenter', () => {
-      closeBtn.style.background = 'var(--background-modifier-hover)';
-      closeBtn.style.color = 'var(--text-normal)';
-    });
-    closeBtn.addEventListener('mouseleave', () => {
-      closeBtn.style.background = 'transparent';
-      closeBtn.style.color = 'var(--text-muted)';
-    });
+    closeBtn.addClass('fleur-ai-close-btn');
     closeBtn.addEventListener('click', () => this.close());
 
     // 内容区
     this.bodyEl = this.panelEl.createDiv();
-    this.bodyEl.style.cssText = `
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px 18px 8px;
-    `;
+    this.bodyEl.addClass('fleur-ai-body');
 
     // 底部输入区
     const footer = this.panelEl.createDiv();
-    footer.style.cssText = `
-      padding: 10px 18px 14px;
-      border-top: 1px solid var(--background-modifier-border);
-      display: flex;
-      gap: 8px;
-      align-items: flex-end;
-      flex-shrink: 0;
-      background: var(--background-primary);
-    `;
+    footer.addClass('fleur-ai-footer');
 
     this.followUpInput = footer.createEl('textarea');
     this.followUpInput.placeholder = '继续追问…';
-    this.followUpInput.style.cssText = `
-      flex: 1;
-      min-height: 34px;
-      max-height: 100px;
-      padding: 7px 12px;
-      border: 1px solid var(--background-modifier-border);
-      border-radius: 6px;
-      resize: none;
-      font-size: 13px;
-      line-height: 1.5;
-      font-family: inherit;
-      color: var(--text-normal);
-      background: var(--background-primary);
-      outline: none;
-      box-sizing: border-box;
-      transition: border-color 0.15s ease;
-    `;
-    this.followUpInput.addEventListener('focus', () => {
-      this.followUpInput!.style.borderColor = 'var(--interactive-accent)';
-    });
-    this.followUpInput.addEventListener('blur', () => {
-      this.followUpInput!.style.borderColor = 'var(--background-modifier-border)';
-    });
+    this.followUpInput.addClass('fleur-ai-input');
     this.followUpInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -250,9 +173,7 @@ export class AIChatPanel {
     this.sendBtn = footer.createEl('button');
     // 预渲染 SVG 图标（发送/停止）
     const iconWrap = this.sendBtn.createSpan();
-    iconWrap.style.display = 'inline-flex';
-    iconWrap.style.alignItems = 'center';
-    iconWrap.style.justifyContent = 'center';
+    iconWrap.addClass('fleur-ai-send-icon');
     
     // 发送图标
     const svgSend = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -292,37 +213,12 @@ export class AIChatPanel {
     svgStop.style.display = 'none';
     iconWrap.appendChild(svgStop);
     this.stopIconEl = svgStop as unknown as HTMLSpanElement;
-    this.sendBtn.style.cssText = `
-      width: 36px; height: 36px;
-      border: none;
-      background: var(--background-secondary);
-      color: var(--text-normal);
-      cursor: pointer;
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-      transition: all 0.15s ease;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    `;
-    this.sendBtn.addEventListener('mouseenter', () => {
-      this.sendBtn!.style.background = 'var(--background-modifier-hover)';
-      this.sendBtn!.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
-    });
-    this.sendBtn.addEventListener('mouseleave', () => {
-      this.sendBtn!.style.background = 'var(--background-secondary)';
-      this.sendBtn!.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
-    });
+    this.sendBtn.addClass('fleur-ai-send-btn');
     this.sendBtn.addEventListener('click', () => this.onSendOrAbort());
 
     // 右下角尺寸调整手柄
     const resizeHandle = this.panelEl.createDiv();
-    resizeHandle.style.cssText = `
-      position: absolute;
-      right: 0; bottom: 0;
-      width: 20px; height: 20px;
-      cursor: nwse-resize;
-      z-index: 10001;
-    `;
+    resizeHandle.addClass('fleur-ai-resize-handle');
     resizeHandle.addEventListener('mousedown', (e) => this.onResizeStart(e));
   }
 
@@ -392,25 +288,12 @@ export class AIChatPanel {
     if (!this.bodyEl) return;
 
     const msg = this.bodyEl.createDiv();
-    msg.style.cssText = `
-      margin-bottom: 12px;
-      ${role === 'user'
-        ? `margin-left:auto;max-width:85%;width:fit-content;`
-        : `margin-right:auto;max-width:90%;`
-      }
-    `;
+    msg.addClass('fleur-msg');
+    msg.addClass(role === 'user' ? 'fleur-msg-user' : 'fleur-msg-assistant');
 
     const bubble = msg.createDiv();
-    bubble.style.cssText = `
-      padding: 10px 14px;
-      border-radius: 10px;
-      line-height: 1.5;
-      word-break: break-word;
-      ${role === 'user'
-        ? 'background:var(--interactive-accent);color:var(--text-on-accent);'
-        : 'background:var(--background-secondary);color:var(--text-normal);'
-      }
-    `;
+    bubble.addClass('fleur-bubble');
+    bubble.addClass(role === 'user' ? 'fleur-bubble-user' : 'fleur-bubble-assistant');
 
     if (role === 'user') {
       bubble.textContent = content;
@@ -423,20 +306,12 @@ export class AIChatPanel {
     // 操作按钮（仅 AI 消息）
     if (role === 'assistant') {
       const actions = msg.createDiv();
-      actions.style.cssText = `
-        display:flex;gap:4px;margin-top:4px;
-        padding-left:4px;
-      `;
+      actions.addClass('fleur-msg-actions');
       this.lastActionsEl = actions;
 
       const makeBtn = (text: string, onClick: () => void) => {
         const btn = actions.createEl('button', { text });
-        btn.style.cssText = `
-          font-size:11px;padding:2px 8px;
-          border:1px solid var(--background-modifier-border);
-          border-radius:4px;background:transparent;
-          color:var(--text-muted);cursor:pointer;
-        `;
+        btn.addClass('fleur-msg-action-btn');
         btn.addEventListener('click', onClick);
         return btn;
       };
@@ -461,27 +336,20 @@ export class AIChatPanel {
 
     if (!this.lastResponseEl) {
       const msg = this.bodyEl.createDiv();
-      msg.style.cssText = 'margin-bottom:12px;margin-right:auto;max-width:90%;';
+      msg.addClass('fleur-msg');
+      msg.addClass('fleur-msg-assistant');
       const bubble = msg.createDiv();
-      bubble.style.cssText = `
-        padding:10px 14px;border-radius:10px;
-        line-height:1.5;word-break:break-word;
-        background:var(--background-secondary);color:var(--text-normal);
-      `;
+      bubble.addClass('fleur-bubble');
+      bubble.addClass('fleur-bubble-assistant');
       this.lastResponseEl = bubble;
 
       const actions = msg.createDiv();
-      actions.style.cssText = 'display:flex;gap:4px;margin-top:4px;padding-left:4px;';
+      actions.addClass('fleur-msg-actions');
       this.lastActionsEl = actions;
 
       const makeBtn = (text: string, onClick: () => void) => {
         const btn = actions.createEl('button', { text });
-        btn.style.cssText = `
-          font-size:11px;padding:2px 8px;
-          border:1px solid var(--background-modifier-border);
-          border-radius:4px;background:transparent;
-          color:var(--text-muted);cursor:pointer;
-        `;
+        btn.addClass('fleur-msg-action-btn');
         btn.addEventListener('click', onClick);
         return btn;
       };

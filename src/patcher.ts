@@ -30,105 +30,34 @@ class CommentModal extends Modal {
 
     // 标题
     const titleEl = contentEl.createEl('h3', { text: '添加批注' });
-    titleEl.style.cssText = `
-      margin: 0 0 16px 0; font-size: 18px; font-weight: 600;
-      color: var(--text-normal); letter-spacing: -0.01em;
-    `;
+    titleEl.addClass('fleur-modal-title');
 
     // 选中文本预览
     const label = contentEl.createDiv({ text: '选中文本' });
-    label.style.cssText = `
-      font-size: 11px; font-weight: 500; text-transform: uppercase;
-      letter-spacing: 0.05em; color: var(--text-faint);
-      margin-bottom: 6px;
-    `;
+    label.addClass('fleur-modal-label');
 
     const preview = contentEl.createDiv();
-    preview.style.cssText = `
-      font-size: 13px; line-height: 1.6;
-      color: var(--text-muted);
-      background: var(--background-secondary);
-      border-left: 3px solid var(--interactive-accent);
-      padding: 10px 14px; border-radius: 0 6px 6px 0;
-      margin-bottom: 20px;
-      max-height: 120px; overflow-y: auto;
-    `;
+    preview.addClass('fleur-modal-preview');
     preview.textContent = this.previewText;
 
     // 批注输入
     const inputLabel = contentEl.createDiv({ text: '批注内容' });
-    inputLabel.style.cssText = `
-      font-size: 11px; font-weight: 500; text-transform: uppercase;
-      letter-spacing: 0.05em; color: var(--text-faint);
-      margin-bottom: 6px;
-    `;
+    inputLabel.addClass('fleur-modal-label');
 
     this.textarea = contentEl.createEl('textarea');
     this.textarea.placeholder = '写下你的想法…';
-    this.textarea.style.cssText = `
-      width: 100%; min-height: 120px;
-      padding: 12px 14px;
-      border: 1px solid var(--background-modifier-border);
-      border-radius: 8px;
-      background: var(--background-primary);
-      color: var(--text-normal);
-      font-size: 14px; line-height: 1.6;
-      resize: vertical;
-      font-family: inherit;
-      box-sizing: border-box;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    `;
-    this.textarea.addEventListener('focus', () => {
-      this.textarea.style.borderColor = 'var(--interactive-accent)';
-      this.textarea.style.boxShadow = '0 0 0 2px var(--interactive-accent-hover, rgba(99,102,241,0.15))';
-    });
-    this.textarea.addEventListener('blur', () => {
-      this.textarea.style.borderColor = 'var(--background-modifier-border)';
-      this.textarea.style.boxShadow = 'none';
-    });
+    this.textarea.addClass('fleur-modal-textarea');
 
     // 按钮行
     const btnRow = contentEl.createDiv();
-    btnRow.style.cssText = `
-      display: flex; gap: 10px; justify-content: flex-end;
-      margin-top: 20px; padding-top: 16px;
-      border-top: 1px solid var(--background-modifier-border);
-    `;
+    btnRow.addClass('fleur-modal-btn-row');
 
     const cancelBtn = btnRow.createEl('button', { text: '取消' });
-    cancelBtn.style.cssText = `
-      padding: 8px 20px; border-radius: 8px; cursor: pointer;
-      border: 1px solid var(--background-modifier-border);
-      background: transparent;
-      color: var(--text-muted); font-size: 14px; font-weight: 500;
-      transition: all 0.15s ease;
-    `;
-    cancelBtn.addEventListener('mouseenter', () => {
-      cancelBtn.style.background = 'var(--background-modifier-hover)';
-      cancelBtn.style.color = 'var(--text-normal)';
-    });
-    cancelBtn.addEventListener('mouseleave', () => {
-      cancelBtn.style.background = 'transparent';
-      cancelBtn.style.color = 'var(--text-muted)';
-    });
+    cancelBtn.addClass('fleur-modal-btn-cancel');
     cancelBtn.addEventListener('click', () => this.close());
 
     const confirmBtn = btnRow.createEl('button', { text: '确定' });
-    confirmBtn.style.cssText = `
-      padding: 8px 20px; border-radius: 8px; cursor: pointer;
-      border: none;
-      background: var(--interactive-accent);
-      color: var(--text-on-accent); font-size: 14px; font-weight: 500;
-      transition: all 0.15s ease;
-    `;
-    confirmBtn.addEventListener('mouseenter', () => {
-      confirmBtn.style.opacity = '0.9';
-      confirmBtn.style.transform = 'translateY(-1px)';
-    });
-    confirmBtn.addEventListener('mouseleave', () => {
-      confirmBtn.style.opacity = '1';
-      confirmBtn.style.transform = 'translateY(0)';
-    });
+    confirmBtn.addClass('fleur-modal-btn-confirm');
     confirmBtn.addEventListener('click', () => {
       const text = this.textarea.value.trim();
       if (!text) return;
@@ -281,13 +210,13 @@ export class MarkdownPatcher {
         }
 
         markEl.dataset.fleurAnnotation = annotation.id;
-        markEl.style.cursor = 'pointer';
+        markEl.addClass('fleur-annotation-mark');
 
         // 创建小气泡图标
-        const bubble = document.createElement('span');
-        bubble.className = 'fleur-annotation-bubble';
+        const bubble = markEl.createEl('span');
+        bubble.addClass('fleur-annotation-bubble');
         bubble.dataset.fleurAnnotation = annotation.id;
-        
+
         // 使用 DOM API 创建 SVG（避免 innerHTML）
         const svgNS = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(svgNS, 'svg');
@@ -303,16 +232,12 @@ export class MarkdownPatcher {
         path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
         svg.appendChild(path);
         bubble.appendChild(svg);
-        
-        bubble.style.cssText = 'display:inline;font-size:11px;margin-left:2px;cursor:pointer;vertical-align:super;line-height:1;opacity:0.55;transition:opacity 0.15s;';
-        
+
         // 直接绑定 mouseenter/mouseleave 到气泡图标上
         bubble.addEventListener('mouseenter', (e) => {
-          bubble.style.opacity = '1';
           this.showTooltip(annotation.id, bubble, e);
         });
         bubble.addEventListener('mouseleave', () => {
-          bubble.style.opacity = '0.55';
           this.scheduleHideTooltip();
         });
         
@@ -475,24 +400,9 @@ export class MarkdownPatcher {
     // 创建气泡
     this.tooltipEl = document.body.createDiv('fleur-annotation-tooltip');
     this.tooltipEl.dataset['tooltipFor'] = annotationId;
-    this.tooltipEl.style.cssText = `
-      position: fixed;
-      z-index: 99999;
-      background: var(--background-secondary);
-      border: 1px solid var(--background-modifier-border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      max-width: 320px;
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--text-normal);
-      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-      pointer-events: auto;
-      opacity: 0;
-      transition: opacity 0.15s ease;
-      cursor: default;
-      user-select: text;
-    `;
+    this.tooltipEl.addClass('fleur-annotation-tooltip');
+    this.tooltipEl.style.pointerEvents = 'auto';
+    this.tooltipEl.style.opacity = '0';
     const cleanText = stripMarkdown(annotation.comment || '');
     this.tooltipEl.textContent = cleanText;
 

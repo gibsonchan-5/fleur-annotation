@@ -290,6 +290,12 @@
   display: none !important;
 }
 
+/* AI 浮动面板动画 */
+@keyframes fleurPanelIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* 批注气泡样式 */
 .fleur-annotation-bubble {
   display: inline-flex !important;

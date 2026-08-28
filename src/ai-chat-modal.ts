@@ -22,6 +22,10 @@ export class AIChatPanel {
   private abortController: AbortController | null = null;
   private isStreaming = false;
 
+  // 预渲染的发送/停止 SVG 图标（避免 innerHTML）
+  private sendIconEl: HTMLSpanElement | null = null;
+  private stopIconEl: HTMLSpanElement | null = null;
+
   private isDragging = false;
   private dragOffsetX = 0;
   private dragOffsetY = 0;
@@ -137,17 +141,7 @@ export class AIChatPanel {
       animation: fleurPanelIn 0.18s ease-out;
     `;
 
-    if (!document.getElementById('fleur-panel-style')) {
-      const style = document.createElement('style');
-      style.id = 'fleur-panel-style';
-      style.textContent = `
-        @keyframes fleurPanelIn {
-          from { opacity: 0; transform: translateY(-8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `;
-      document.head.appendChild(style);
-    }
+    // 动画 keyframes 已移至 styles.css
 
     this.clickOutsideHandler = (e: MouseEvent) => {
       if (this.panelEl && !this.panelEl.contains(e.target as Node)) {
@@ -180,7 +174,7 @@ export class AIChatPanel {
     `;
 
     const closeBtn = header.createEl('button');
-    closeBtn.innerHTML = '×';
+    closeBtn.textContent = '×';
     closeBtn.style.cssText = `
       width: 26px; height: 26px;
       border: none; background: transparent;
@@ -254,7 +248,50 @@ export class AIChatPanel {
     });
 
     this.sendBtn = footer.createEl('button');
-    this.sendBtn.innerHTML = ICON_SEND;
+    // 预渲染 SVG 图标（发送/停止）
+    const iconWrap = this.sendBtn.createSpan();
+    iconWrap.style.display = 'inline-flex';
+    iconWrap.style.alignItems = 'center';
+    iconWrap.style.justifyContent = 'center';
+    
+    // 发送图标
+    const svgSend = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgSend.setAttribute('width', '18');
+    svgSend.setAttribute('height', '18');
+    svgSend.setAttribute('viewBox', '0 0 24 24');
+    svgSend.setAttribute('fill', 'none');
+    svgSend.setAttribute('stroke', 'currentColor');
+    svgSend.setAttribute('stroke-width', '2');
+    svgSend.setAttribute('stroke-linecap', 'round');
+    svgSend.setAttribute('stroke-linejoin', 'round');
+    const lineSend = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    lineSend.setAttribute('x1', '22'); lineSend.setAttribute('y1', '2');
+    lineSend.setAttribute('x2', '11'); lineSend.setAttribute('y2', '13');
+    svgSend.appendChild(lineSend);
+    const polySend = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    polySend.setAttribute('points', '22 2 15 22 11 13 2 9 22 2');
+    svgSend.appendChild(polySend);
+    iconWrap.appendChild(svgSend);
+    this.sendIconEl = svgSend as unknown as HTMLSpanElement;
+    
+    // 停止图标
+    const svgStop = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgStop.setAttribute('width', '18');
+    svgStop.setAttribute('height', '18');
+    svgStop.setAttribute('viewBox', '0 0 24 24');
+    svgStop.setAttribute('fill', 'none');
+    svgStop.setAttribute('stroke', 'currentColor');
+    svgStop.setAttribute('stroke-width', '2');
+    svgStop.setAttribute('stroke-linecap', 'round');
+    svgStop.setAttribute('stroke-linejoin', 'round');
+    const rectStop = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rectStop.setAttribute('x', '6'); rectStop.setAttribute('y', '6');
+    rectStop.setAttribute('width', '12'); rectStop.setAttribute('height', '12');
+    rectStop.setAttribute('rx', '1');
+    svgStop.appendChild(rectStop);
+    svgStop.style.display = 'none';
+    iconWrap.appendChild(svgStop);
+    this.stopIconEl = svgStop as unknown as HTMLSpanElement;
     this.sendBtn.style.cssText = `
       width: 36px; height: 36px;
       border: none;
@@ -568,12 +605,14 @@ export class AIChatPanel {
   }
 
   private updateSendButton() {
-    if (!this.sendBtn) return;
+    if (!this.sendBtn || !this.sendIconEl || !this.stopIconEl) return;
     if (this.isStreaming) {
-      this.sendBtn.innerHTML = ICON_STOP;
+      this.sendIconEl.style.display = 'none';
+      this.stopIconEl.style.display = '';
       this.sendBtn.style.background = 'var(--background-modifier-hover)';
     } else {
-      this.sendBtn.innerHTML = ICON_SEND;
+      this.sendIconEl.style.display = '';
+      this.stopIconEl.style.display = 'none';
       this.sendBtn.style.background = 'var(--background-secondary)';
     }
   }

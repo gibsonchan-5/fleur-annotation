@@ -54,7 +54,7 @@ export class FleurSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // AI 配置
-    containerEl.createEl('h3', { text: 'AI 配置' });
+    new Setting(containerEl).setHeading().setName('AI 配置');
 
     const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
       deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -221,7 +221,7 @@ export class FleurSettingTab extends PluginSettingTab {
     });
 
     // 标注设置
-    containerEl.createEl('h3', { text: '标注设置' });
+    new Setting(containerEl).setHeading().setName('标注设置');
 
     new Setting(containerEl)
       .setName('默认高亮颜色')
@@ -280,7 +280,7 @@ export class FleurSettingTab extends PluginSettingTab {
         }));
 
     // 笔记导出
-    containerEl.createEl('h3', { text: '笔记导出' });
+    new Setting(containerEl).setHeading().setName('笔记导出');
 
     const folderSet = new Set<string>();
     folderSet.add('FleurAnnotation');
@@ -312,7 +312,7 @@ export class FleurSettingTab extends PluginSettingTab {
       });
 
     // 菜单设置
-    containerEl.createEl('h3', { text: '菜单设置' });
+    new Setting(containerEl).setHeading().setName('菜单设置');
 
     new Setting(containerEl)
       .setName('阅读模式右键菜单')
@@ -325,7 +325,7 @@ export class FleurSettingTab extends PluginSettingTab {
         }));
 
     // 侧边栏配置
-    containerEl.createEl('h3', { text: '侧边栏配置' });
+    new Setting(containerEl).setHeading().setName('侧边栏配置');
 
     new Setting(containerEl)
       .setName('侧边栏位置')

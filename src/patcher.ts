@@ -287,7 +287,23 @@ export class MarkdownPatcher {
         const bubble = document.createElement('span');
         bubble.className = 'fleur-annotation-bubble';
         bubble.dataset.fleurAnnotation = annotation.id;
-        bubble.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+        
+        // 使用 DOM API 创建 SVG（避免 innerHTML）
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('width', '12');
+        svg.setAttribute('height', '12');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
+        svg.appendChild(path);
+        bubble.appendChild(svg);
+        
         bubble.style.cssText = 'display:inline;font-size:11px;margin-left:2px;cursor:pointer;vertical-align:super;line-height:1;opacity:0.55;transition:opacity 0.15s;';
         
         // 直接绑定 mouseenter/mouseleave 到气泡图标上
@@ -570,7 +586,7 @@ export class MarkdownPatcher {
           color: '#FFC107',
           createdAt: Date.now(),
         });
-        this.plugin.sidebar?.refreshAnnotations();
+        this.plugin.refreshSidebar();
         new Notice('该文本已高亮');
         return;
       }
@@ -615,7 +631,7 @@ export class MarkdownPatcher {
       createdAt: Date.now(),
     });
 
-    this.plugin.sidebar?.refreshAnnotations();
+    this.plugin.refreshSidebar();
     new Notice('已添加高亮');
 
     // 强制注入气泡
@@ -664,7 +680,7 @@ export class MarkdownPatcher {
       createdAt: Date.now(),
     });
 
-    this.plugin.sidebar?.refreshAnnotations();
+    this.plugin.refreshSidebar();
     new Notice('已添加划线');
   }
 
@@ -718,7 +734,7 @@ export class MarkdownPatcher {
       createdAt: Date.now(),
     });
 
-    this.plugin.sidebar?.refreshAnnotations();
+    this.plugin.refreshSidebar();
     new Notice('已添加批注');
 
     // 延迟注入气泡（等待 DOM 更新）
@@ -785,7 +801,7 @@ export class MarkdownPatcher {
     }
 
     await this.plugin.store.deleteAnnotation(file.path, annotationId);
-    this.plugin.sidebar?.refreshAnnotations();
+    this.plugin.refreshSidebar();
     new Notice('已删除批注');
   }
 

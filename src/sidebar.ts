@@ -4,6 +4,14 @@ import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
 
+// 辅助函数：将 SVG 字符串安全插入 DOM（使用 DOMParser 避免 innerHTML）
+function insertSVG(parent: HTMLElement, svgString: string) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgString, 'image/svg+xml');
+  const svg = doc.documentElement;
+  if (svg) parent.appendChild(svg);
+}
+
 export const VIEW_TYPE_FLEUR_NOTE = 'fleur-annotation-sidebar';
 
 export class SidebarView extends ItemView {
@@ -80,7 +88,8 @@ export class SidebarView extends ItemView {
       color:var(--text-muted);cursor:pointer;
       display:inline-flex;align-items:center;gap:4px;
     `;
-    exportBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg> 导出笔记`;
+    insertSVG(exportBtn, `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>`);
+    exportBtn.createSpan({ text: ' 导出笔记' });
     exportBtn.addEventListener('mouseenter', () => {
       exportBtn.style.borderColor = 'var(--interactive-accent)';
       exportBtn.style.color = 'var(--interactive-accent)';
@@ -129,7 +138,8 @@ export class SidebarView extends ItemView {
         border-bottom:1px solid var(--background-modifier-border);
         width:100%;
       `;
-      pageTag.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> ${group.label}（${group.items.length}）`;
+      insertSVG(pageTag, `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`);
+      pageTag.createSpan({ text: ` ${group.label}（${group.items.length}）` });
 
       group.items.forEach(ann => {
         this.renderAnnotation(section, ann);
@@ -173,11 +183,11 @@ export class SidebarView extends ItemView {
       color:var(--text-faint);
     `;
     if (ann.type === 'highlight') {
-      typeIcon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
+      insertSVG(typeIcon, `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`);
     } else if (ann.type === 'underline') {
-      typeIcon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>`;
+      insertSVG(typeIcon, `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>`);
     } else {
-      typeIcon.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+      insertSVG(typeIcon, `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`);
     }
 
     // 选中文本
@@ -221,7 +231,8 @@ export class SidebarView extends ItemView {
       color:var(--text-faint);cursor:pointer;border-radius:3px;
       display:flex;align-items:center;justify-content:center;
     `;
-    aiBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22"/><path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93"/><path d="M8 6h8"/><path d="M9 10h6"/><path d="M10 14h4"/><path d="M11 18h2"/></svg>`;
+    const aiIconWrap = aiBtn.createSpan();
+    insertSVG(aiIconWrap, `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22"/><path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93"/><path d="M8 6h8"/><path d="M9 10h6"/><path d="M10 14h4"/><path d="M11 18h2"/></svg>`);
     aiBtn.addEventListener('mouseenter', () => {
       aiBtn.style.background = 'var(--background-modifier-hover)';
       aiBtn.style.color = 'var(--interactive-accent)';
@@ -244,7 +255,8 @@ export class SidebarView extends ItemView {
       color:var(--text-faint);cursor:pointer;border-radius:3px;
       display:flex;align-items:center;justify-content:center;
     `;
-    delBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    const delIconWrap = delBtn.createSpan();
+    insertSVG(delIconWrap, `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`);
     delBtn.addEventListener('mouseenter', () => {
       delBtn.style.background = 'var(--background-modifier-hover)';
       delBtn.style.color = 'var(--text-error)';

@@ -8,7 +8,6 @@ import { FleurSettings, DEFAULT_SETTINGS, FleurSettingTab } from './settings';
 export default class FleurAnnotationPlugin extends Plugin {
   store: AnnotationStore;
   patcher: MarkdownPatcher;
-  sidebar: SidebarView | null = null;
   settings: FleurSettings = DEFAULT_SETTINGS;
 
   async onload() {
@@ -19,8 +18,7 @@ export default class FleurAnnotationPlugin extends Plugin {
     this.patcher.install();
 
     this.registerView(VIEW_TYPE_FLEUR_NOTE, (leaf) => {
-      this.sidebar = new SidebarView(leaf, this);
-      return this.sidebar;
+      return new SidebarView(leaf, this);
     });
 
     this.addRibbonIcon('feather', 'FleurAnnotation', () => {
@@ -47,14 +45,14 @@ export default class FleurAnnotationPlugin extends Plugin {
     // 监听文件切换，刷新侧边栏
     this.registerEvent(
       this.app.workspace.on('file-open', (file) => {
-        if (file?.extension === 'md') this.sidebar?.refresh();
+        if (file?.extension === 'md') this.refreshSidebar();
       })
     );
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf?.view instanceof MarkdownView) {
           const file = leaf.view.file;
-          if (file?.extension === 'md') this.sidebar?.refresh();
+          if (file?.extension === 'md') this.refreshSidebar();
         }
       })
     );
@@ -91,6 +89,16 @@ export default class FleurAnnotationPlugin extends Plugin {
 
     if (leaf) {
       workspace.revealLeaf(leaf);
+    }
+  }
+
+  refreshSidebar() {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_FLEUR_NOTE);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view && typeof (view as any).refreshAnnotations === 'function') {
+        (view as any).refreshAnnotations();
+      }
     }
   }
 

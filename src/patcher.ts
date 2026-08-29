@@ -402,7 +402,29 @@ export class MarkdownPatcher {
     this.tooltipEl.dataset['tooltipFor'] = annotationId;
     this.tooltipEl.addClass('fleur-annotation-tooltip');
     const cleanText = stripMarkdown(annotation.comment || '');
-    this.tooltipEl.textContent = cleanText;
+
+    // 文本容器：JS 控制截断，不依赖 CSS line-clamp
+    const textContainer = this.tooltipEl.createDiv('fleur-tooltip-text');
+    const MAX_CHARS = 120;
+    const isLong = cleanText.length > MAX_CHARS;
+    textContainer.textContent = isLong ? cleanText.slice(0, MAX_CHARS) + '...' : cleanText;
+
+    // 展开/收起提示
+    let tooltipExpanded = false;
+    const tooltipHint = this.tooltipEl.createDiv('fleur-tooltip-toggle-hint');
+    tooltipHint.textContent = '展开全文 ›';
+    tooltipHint.setCssStyles({ display: isLong ? 'block' : 'none' });
+    tooltipHint.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tooltipExpanded = !tooltipExpanded;
+      if (tooltipExpanded) {
+        textContainer.textContent = cleanText;
+        tooltipHint.textContent = '收起 ▲';
+      } else {
+        textContainer.textContent = cleanText.slice(0, MAX_CHARS) + '...';
+        tooltipHint.textContent = '展开全文 ›';
+      }
+    });
 
     // tooltip 自身的鼠标事件：进入时取消隐藏，离开时延迟隐藏
     this.tooltipEl.addEventListener('mouseenter', () => {
@@ -432,10 +454,10 @@ export class MarkdownPatcher {
     }
   }
 
-  /** 立即隐藏 tooltip */
+  /** 延迟隐藏 tooltip（给用户时间移到 tooltip 上点击"展开全文"） */
   private scheduleHideTooltip() {
     if (this.tooltipHideTimer) clearTimeout(this.tooltipHideTimer);
-    this.removeTooltip();
+    this.tooltipHideTimer = setTimeout(() => this.removeTooltip(), 600);
   }
 
   private removeTooltip() {

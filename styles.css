@@ -359,7 +359,7 @@
   border-radius: 6px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  overflow: hidden;
+  overflow: visible;
   transition: border-color 0.15s ease;
 }
 
@@ -413,11 +413,8 @@
   flex-shrink: 0;
   display: flex;
   gap: 2px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.fleur-card:hover .fleur-card-actions {
   opacity: 1;
+  transition: opacity 0.12s ease;
 }
 
 .fleur-card-ai-btn {
@@ -462,6 +459,23 @@
   letter-spacing: 0.01em;
 }
 
+.fleur-card-edit-btn {
+  width: 22px; height: 22px;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fleur-card-edit-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
 .fleur-comment-slot {
   margin-top: 8px;
   margin-left: 26px;
@@ -475,6 +489,30 @@
   background: var(--background-secondary);
   border-radius: 4px;
   cursor: pointer;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  position: relative;
+}
+
+.fleur-comment-display.is-expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+}
+
+.fleur-comment-toggle-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  text-align: right;
+  cursor: pointer;
+}
+
+.fleur-comment-toggle-hint:hover {
+  color: var(--text-muted);
 }
 
 .fleur-comment-hint {
@@ -486,7 +524,7 @@
 
 .fleur-comment-textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: 80px;
   max-height: 400px;
   padding: 8px 10px;
   border: 1px solid var(--background-modifier-border);
@@ -570,10 +608,27 @@
   transition: opacity 0.15s ease;
   cursor: default;
   user-select: text;
+  overflow: visible;
 }
 
 .fleur-annotation-tooltip.is-visible {
   opacity: 1;
+}
+
+.fleur-tooltip-text {
+  word-break: break-word;
+}
+
+.fleur-tooltip-toggle-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  text-align: right;
+  cursor: pointer;
+}
+
+.fleur-tooltip-toggle-hint:hover {
+  color: var(--text-muted);
 }
 
 /* ══════════════════════════════════════════════

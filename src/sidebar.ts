@@ -4,12 +4,24 @@ import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
 
-// 辅助函数：将 SVG 字符串安全插入 DOM（使用 DOMParser 避免 innerHTML）
-function insertSVG(parent: HTMLElement, svgString: string) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgString, 'image/svg+xml');
-  const svg = doc.documentElement;
-  if (svg) parent.appendChild(svg);
+// 辅助函数：从属性数组构建 SVG 图标
+function makeIcon(parent: HTMLElement, size: number, children: Array<[string, Record<string, string>]>) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  for (const [tag, attrs] of children) {
+    const el = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    svg.appendChild(el);
+  }
+  parent.appendChild(svg);
 }
 
 export const VIEW_TYPE_FLEUR_NOTE = 'fleur-annotation-sidebar';
@@ -78,7 +90,7 @@ export class SidebarView extends ItemView {
     // 导出笔记按钮
     const exportBtn = header.createEl('button');
     exportBtn.addClass('fleur-sidebar-export-btn');
-    insertSVG(exportBtn, `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>`);
+    makeIcon(exportBtn, 13, [['path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }], ['polyline', { points: '14 2 14 8 20 8' }], ['line', { x1: '12', y1: '18', x2: '12', y2: '12' }], ['polyline', { points: '9 15 12 18 15 15' }]]);
     exportBtn.createSpan({ text: ' 导出笔记' });
     exportBtn.addEventListener('click', () => this.exportAllNotes());
 
@@ -113,7 +125,7 @@ export class SidebarView extends ItemView {
 
       const pageTag = section.createDiv();
       pageTag.addClass('fleur-sidebar-page-tag');
-      insertSVG(pageTag, `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`);
+      makeIcon(pageTag, 12, [['path', { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' }], ['path', { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' }]]);
       pageTag.createSpan({ text: ` ${group.label}（${group.items.length}）` });
 
       group.items.forEach(ann => {
@@ -122,7 +134,7 @@ export class SidebarView extends ItemView {
     });
   }
 
-  // ── 单条标注卡片（HiNote 风格，完全对标 FleurPDF） ──
+  // ── 单条标注卡片（fleurPDF 风格） ──
 
   private renderAnnotation(parent: HTMLElement, ann: Annotation) {
     const card = parent.createDiv();
@@ -140,7 +152,7 @@ export class SidebarView extends ItemView {
     const main = card.createDiv();
     main.addClass('fleur-card-main');
 
-    // 选中文本行（带悬停操作）
+    // 选中文本行
     const row = main.createDiv();
     row.addClass('fleur-card-row');
 
@@ -148,11 +160,11 @@ export class SidebarView extends ItemView {
     const typeIcon = row.createDiv();
     typeIcon.addClass('fleur-card-type-icon');
     if (ann.type === 'highlight') {
-      insertSVG(typeIcon, `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`);
+      makeIcon(typeIcon, 14, [['path', { d: 'M12 20h9' }], ['path', { d: 'M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z' }]]);
     } else if (ann.type === 'underline') {
-      insertSVG(typeIcon, `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"/><line x1="4" y1="21" x2="20" y2="21"/></svg>`);
+      makeIcon(typeIcon, 14, [['path', { d: 'M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3' }], ['line', { x1: '4', y1: '21', x2: '20', y2: '21' }]]);
     } else {
-      insertSVG(typeIcon, `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`);
+      makeIcon(typeIcon, 14, [['path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' }]]);
     }
 
     // 选中文本
@@ -170,7 +182,7 @@ export class SidebarView extends ItemView {
       textEl.toggleClass('is-expanded', expanded);
     });
 
-    // 操作按钮（悬停显示）
+    // 卡片右上角操作图标（始终显示，更简洁）
     const actions = row.createDiv();
     actions.addClass('fleur-card-actions');
 
@@ -179,10 +191,21 @@ export class SidebarView extends ItemView {
     aiBtn.title = 'AI 生成批注';
     aiBtn.addClass('fleur-card-ai-btn');
     const aiIconWrap = aiBtn.createSpan();
-    insertSVG(aiIconWrap, `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22"/><path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93"/><path d="M8 6h8"/><path d="M9 10h6"/><path d="M10 14h4"/><path d="M11 18h2"/></svg>`);
+    makeIcon(aiIconWrap, 13, [['path', { d: 'M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22' }], ['path', { d: 'M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93' }], ['path', { d: 'M8 6h8' }], ['path', { d: 'M9 10h6' }], ['path', { d: 'M10 14h4' }], ['path', { d: 'M11 18h2' }]]);
     aiBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.generateAIComment(ann);
+    });
+
+    // 编辑按钮
+    const editBtn = actions.createEl('button');
+    editBtn.title = '编辑批注';
+    editBtn.addClass('fleur-card-edit-btn');
+    const editIconWrap = editBtn.createSpan();
+    makeIcon(editIconWrap, 13, [['path', { d: 'M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' }]]);
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openInlineEditor(ann, main);
     });
 
     // 删除按钮
@@ -190,7 +213,7 @@ export class SidebarView extends ItemView {
     delBtn.title = '删除';
     delBtn.addClass('fleur-card-del-btn');
     const delIconWrap = delBtn.createSpan();
-    insertSVG(delIconWrap, `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`);
+    makeIcon(delIconWrap, 13, [['line', { x1: '18', y1: '6', x2: '6', y2: '18' }], ['line', { x1: '6', y1: '6', x2: '18', y2: '18' }]]);
     delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.deleteAnnotation(ann);
@@ -201,9 +224,9 @@ export class SidebarView extends ItemView {
     commentSlot.dataset['commentSlotFor'] = ann.id;
 
     if (ann.comment) {
-      this.renderCommentDisplay(commentSlot, ann);
+      this.renderCommentDisplay(commentSlot, ann, main);
     } else {
-      this.renderAddCommentHint(commentSlot, ann);
+      this.renderAddCommentHint(commentSlot, ann, main);
     }
 
     // 时间戳
@@ -212,9 +235,9 @@ export class SidebarView extends ItemView {
     footer.textContent = new Date(ann.createdAt).toLocaleString('zh-CN');
   }
 
-  // ── 批注显示/编辑 ──
+  // ── 批注显示（原位编辑） ──
 
-  private renderCommentDisplay(slot: HTMLElement, ann: Annotation) {
+  private renderCommentDisplay(slot: HTMLElement, ann: Annotation, cardMain: HTMLElement) {
     slot.addClass('fleur-comment-slot');
 
     const display = slot.createDiv();
@@ -222,56 +245,115 @@ export class SidebarView extends ItemView {
 
     const commentText = stripMarkdown(ann.comment || '');
     display.textContent = commentText;
+    display.title = '单击展开/收起，双击编辑';
 
-    display.addEventListener('click', () => this.openCommentEditor(ann));
+    // 展开提示（文本超过80字时显示）
+    let expanded = false;
+    const toggleHint = slot.createDiv({ text: '展开全文 ›' });
+    toggleHint.addClass('fleur-comment-toggle-hint');
+    const needsToggle = commentText.length > 80;
+    toggleHint.setCssStyles({ display: needsToggle ? '' : 'none' });
+    toggleHint.addEventListener('click', (e) => {
+      e.stopPropagation();
+      expanded = !expanded;
+      display.toggleClass('is-expanded', expanded);
+      toggleHint.textContent = expanded ? '收起 ‹' : '展开全文 ›';
+    });
+
+    // 单击切换展开/收起
+    display.addEventListener('click', (e) => {
+      e.stopPropagation();
+      expanded = !expanded;
+      display.toggleClass('is-expanded', expanded);
+      toggleHint.textContent = expanded ? '收起 ‹' : '展开全文 ›';
+    });
+
+    // 双击原位编辑
+    display.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      this.openInlineEditor(ann, cardMain);
+    });
   }
 
-  private renderAddCommentHint(slot: HTMLElement, ann: Annotation) {
+  private renderAddCommentHint(slot: HTMLElement, ann: Annotation, cardMain: HTMLElement) {
     slot.addClass('fleur-comment-slot');
 
     const hint = slot.createDiv({ text: '添加批注…' });
     hint.addClass('fleur-comment-hint');
-    hint.addEventListener('click', () => this.openCommentEditor(ann));
+    hint.addEventListener('click', () => this.openInlineEditor(ann, cardMain));
   }
 
-  private openCommentEditor(ann: Annotation) {
-    // 清除旧的编辑区
-    const existing = this.containerEl.querySelector(`[data-comment-editor-for="${ann.id}"]`);
-    if (existing) existing.remove();
-
-    const slot = this.containerEl.querySelector(`[data-comment-slot-for="${ann.id}"]`);
+  /** 原位编辑器：直接在批注位置替换为 textarea，Enter 保存，Esc/点击外部取消 */
+  private openInlineEditor(ann: Annotation, cardMain: HTMLElement) {
+    const slot = cardMain.querySelector(`[data-comment-slot-for="${ann.id}"]`);
     if (!slot) return;
+
+    // 清除旧的编辑区
+    const existing = slot.querySelector(`[data-comment-editor-for="${ann.id}"]`);
+    if (existing) existing.remove();
 
     const editorWrap = slot.createDiv();
     editorWrap.dataset['commentEditorFor'] = ann.id;
+    editorWrap.addClass('fleur-comment-editor-wrap');
 
     const textarea = editorWrap.createEl('textarea');
     textarea.value = ann.comment || '';
     textarea.addClass('fleur-comment-textarea');
+    textarea.setCssStyles({ minHeight: '80px' });
     textarea.addEventListener('input', () => {
       textarea.setCssStyles({ height: 'auto' });
       textarea.setCssStyles({ height: `${Math.min(textarea.scrollHeight, 400)}px` });
     });
-    textarea.focus();
 
+    // 隐藏批注显示和提示
+    const display = slot.querySelector('.fleur-comment-display');
+    const toggleHint = slot.querySelector('.fleur-comment-toggle-hint');
+    if (display) (display as HTMLElement).setCssStyles({ display: 'none' });
+    if (toggleHint) (toggleHint as HTMLElement).setCssStyles({ display: 'none' });
+
+    // Enter 保存，Shift+Enter 换行，Esc 取消
+    textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        saveComment();
+      } else if (e.key === 'Escape') {
+        cancelEdit();
+      }
+    });
+
+    const doSave = async () => {
+      ann.comment = textarea.value.trim();
+      if (ann.comment) {
+        await this.syncAnnotationToFile(ann);
+      } else {
+        await this.plugin.store.updateAnnotation(this.getFilePath(), ann);
+      }
+      await this.refreshAnnotations();
+    };
+
+    const saveComment = async () => {
+      await doSave();
+    };
+
+    const cancelEdit = () => {
+      editorWrap.remove();
+      if (display) (display as HTMLElement).setCssStyles({ display: '' });
+      if (toggleHint) (toggleHint as HTMLElement).setCssStyles({ display: '' });
+    };
+
+    // 底部保存/取消按钮行（小图标风格）
     const btnRow = editorWrap.createDiv();
     btnRow.addClass('fleur-comment-btn-row');
 
     const saveBtn = btnRow.createEl('button', { text: '保存' });
     saveBtn.addClass('fleur-comment-save-btn');
-    saveBtn.addEventListener('click', async () => {
-      ann.comment = textarea.value.trim();
-      if (ann.comment) {
-        await this.syncAnnotationToFile(ann);
-      }
-      await this.refreshAnnotations();
-    });
+    saveBtn.addEventListener('click', saveComment);
 
     const cancelBtn = btnRow.createEl('button', { text: '取消' });
     cancelBtn.addClass('fleur-comment-cancel-btn');
-    cancelBtn.addEventListener('click', () => {
-      editorWrap.remove();
-    });
+    cancelBtn.addEventListener('click', cancelEdit);
+
+    textarea.focus();
   }
 
   // ── AI 生成批注 ──
@@ -287,7 +369,7 @@ export class SidebarView extends ItemView {
         let result = '';
 
         await service.streamChat(
-          [{ role: 'user', content: `请为以下文本生成一段精炼的批注（50-100字），包含关键要点和深层含义。直接输出批注内容，不要加"批注："等前缀，不要使用 Markdown 格式。\n\n「${ann.text}」` }],
+          [{ role: 'user', content: `请为以下文本生成一段简明批注（100-200字）。要求：1）概括核心观点；2）简析逻辑或论证方式；3）点出深层含义或影响。直接输出批注内容，不要加"批注："等前缀，不要使用 Markdown 格式。\n\n「${ann.text}」` }],
           (text) => { result += text; }
         );
 

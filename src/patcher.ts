@@ -494,6 +494,21 @@ export class MarkdownPatcher {
   //  侵入式编辑
   // ════════════════════════════════════════════
 
+  /** 计算选中文本在文档中的起始行号（用于内文排序） */
+  private computeLine(content: string | null, selection: string, editor: Editor | null): number | undefined {
+    if (editor) {
+      const from = editor.getCursor('from');
+      if (from) return from.line;
+    }
+    if (content) {
+      const idx = content.indexOf(selection);
+      if (idx >= 0) {
+        return content.slice(0, idx).split('\n').length - 1;
+      }
+    }
+    return undefined;
+  }
+
   private async addHighlight(selection: string, editor: Editor | null, inReadingMode: boolean) {
 
     const file = this.plugin.app.workspace.getActiveFile();
@@ -502,8 +517,9 @@ export class MarkdownPatcher {
       return;
     }
 
+    let content: string | null = null;
     if (inReadingMode) {
-      const content = await this.plugin.app.vault.read(file);
+      content = await this.plugin.app.vault.read(file);
 
 
 
@@ -516,6 +532,7 @@ export class MarkdownPatcher {
           type: 'highlight',
           text: selection,
           color: '#FFC107',
+          line: this.computeLine(content, selection, editor),
           createdAt: Date.now(),
         });
         this.plugin.refreshSidebar();
@@ -560,6 +577,7 @@ export class MarkdownPatcher {
       type: 'highlight',
       text: selection,
       color: '#FFC107',
+      line: this.computeLine(content, selection, editor),
       createdAt: Date.now(),
     });
 
@@ -578,8 +596,9 @@ export class MarkdownPatcher {
     const wrapPrefix = `<u style="color:${underlineColor}">`;
     const wrapSuffix = '</u>';
 
+    let content: string | null = null;
     if (inReadingMode) {
-      const content = await this.plugin.app.vault.read(file);
+      content = await this.plugin.app.vault.read(file);
       // <u> 也不能跨段落，每段分别包裹
       const wrapUnderline = (origMatched: string) => {
         if (origMatched.includes('\n\n')) {
@@ -609,6 +628,7 @@ export class MarkdownPatcher {
       type: 'underline',
       text: selection,
       color: underlineColor,
+      line: this.computeLine(content, selection, editor),
       createdAt: Date.now(),
     });
 
@@ -628,8 +648,9 @@ export class MarkdownPatcher {
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) return;
 
+    let content: string | null = null;
     if (inReadingMode) {
-      const content = await this.plugin.app.vault.read(file);
+      content = await this.plugin.app.vault.read(file);
       // 批注 = 高亮 + 内联注释：==文本==%% 批注 %%
       // == 不能跨段落，每段分别包裹
       const wrapComment = (origMatched: string) => {
@@ -663,6 +684,7 @@ export class MarkdownPatcher {
       text: selection,
       color: '#FFC107',
       comment: comment,
+      line: this.computeLine(content, selection, editor),
       createdAt: Date.now(),
     });
 

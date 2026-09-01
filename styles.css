@@ -288,7 +288,7 @@
    侧边栏
    ═══════════════════════════════════════════════ */
 .fleur-sidebar {
-  padding: 12px;
+  padding: 14px 16px;
   font-size: 14px;
 }
 
@@ -296,32 +296,39 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .fleur-sidebar-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
 }
 
 .fleur-sidebar-export-btn {
   font-size: 12px;
   padding: 4px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--background-primary);
+  border: none;
+  border-radius: 6px;
+  background: var(--background-modifier-hover);
   color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+  margin-left: 8px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 .fleur-sidebar-export-btn:hover {
-  border-color: var(--interactive-accent);
-  color: var(--interactive-accent);
+  background: var(--background-modifier-border-hover);
+  color: var(--text-normal);
 }
 
 .fleur-sidebar-body {
@@ -336,35 +343,39 @@
 }
 
 .fleur-sidebar-section {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .fleur-sidebar-page-tag {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
   text-transform: uppercase;
   padding: 2px 0;
   margin-bottom: 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  width: 100%;
 }
 
 .fleur-card {
   margin-bottom: 6px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   overflow: visible;
-  transition: border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  padding: 0;
+}
+.fleur-card:hover {
+  background: var(--background-secondary);
+  border-color: var(--background-modifier-border-hover);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .fleur-card-bar {
-  height: 2px;
+  display: none;
 }
 
 .fleur-card-main {
@@ -393,8 +404,8 @@
 }
 
 .fleur-card-text {
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.45;
   color: var(--text-normal);
   word-break: break-word;
   overflow: hidden;
@@ -412,26 +423,13 @@
 .fleur-card-actions {
   flex-shrink: 0;
   display: flex;
-  gap: 2px;
-  opacity: 1;
+  gap: 1px;
+  opacity: 0;
   transition: opacity 0.12s ease;
 }
-
-.fleur-card-ai-btn {
-  width: 22px; height: 22px;
-  padding: 3px;
-  border: none;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.fleur-card-ai-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--interactive-accent);
+.fleur-card:hover .fleur-card-actions,
+.fleur-card:focus-within .fleur-card-actions {
+  opacity: 1;
 }
 
 .fleur-card-del-btn {
@@ -441,7 +439,7 @@
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -466,12 +464,29 @@
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .fleur-card-edit-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+.fleur-card-ai-btn {
+  width: 22px; height: 22px;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fleur-card-ai-btn:hover {
   background: var(--background-modifier-hover);
   color: var(--interactive-accent);
 }

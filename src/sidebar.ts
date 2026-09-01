@@ -34,7 +34,7 @@ export class SidebarView extends ItemView {
   }
 
   getViewType() { return VIEW_TYPE_FLEUR_NOTE; }
-  getDisplayText() { return 'FleurAnnotation'; }
+  getDisplayText() { return this.app.workspace.getActiveFile()?.basename || '批注'; }
   getIcon() { return 'feather'; }
 
   async onOpen() {
@@ -81,7 +81,7 @@ export class SidebarView extends ItemView {
     container.empty();
     container.addClass('fleur-sidebar');
 
-    // 顶部标题栏
+    // 顶部标题栏（Obsidian 标签已显示文件名，这里只显示简洁的"批注"）
     const header = container.createDiv();
     header.addClass('fleur-sidebar-header');
     const titleEl = header.createSpan({ text: '批注' });
@@ -104,33 +104,20 @@ export class SidebarView extends ItemView {
       return;
     }
 
-    // 按类型分组
-    const groups: { type: string; label: string; icon: string; items: Annotation[] }[] = [
-      { type: 'highlight', label: '高亮', icon: 'highlighter', items: [] },
-      { type: 'underline', label: '划线', icon: 'underline', items: [] },
-      { type: 'comment', label: '批注', icon: 'message-square', items: [] },
-    ];
-
-    this.data.annotations.forEach(ann => {
-      const g = groups.find(g => g.type === ann.type);
-      if (g) g.items.push(ann);
+    // 按设置排序：内文顺序（行号升序）或时间倒序
+    const sortMode = this.plugin.settings.annotationSort || 'line';
+    const sorted = [...this.data.annotations].sort((a, b) => {
+      if (sortMode === 'time') {
+        return b.createdAt - a.createdAt;
+      }
+      // 内文顺序：优先行号，行号缺失或相同时退回时间
+      const la = a.line ?? Number.MAX_SAFE_INTEGER;
+      const lb = b.line ?? Number.MAX_SAFE_INTEGER;
+      if (la !== lb) return la - lb;
+      return a.createdAt - b.createdAt;
     });
-
-    groups.forEach(group => {
-      if (group.items.length === 0) return;
-
-      // 分组标题
-      const section = body.createDiv();
-      section.addClass('fleur-sidebar-section');
-
-      const pageTag = section.createDiv();
-      pageTag.addClass('fleur-sidebar-page-tag');
-      makeIcon(pageTag, 12, [['path', { d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20' }], ['path', { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z' }]]);
-      pageTag.createSpan({ text: ` ${group.label}（${group.items.length}）` });
-
-      group.items.forEach(ann => {
-        this.renderAnnotation(section, ann);
-      });
+    sorted.forEach(ann => {
+      this.renderAnnotation(body, ann);
     });
   }
 
@@ -182,7 +169,7 @@ export class SidebarView extends ItemView {
       textEl.toggleClass('is-expanded', expanded);
     });
 
-    // 卡片右上角操作图标（始终显示，更简洁）
+    // 卡片右上角操作图标（AI/编辑/删除）
     const actions = row.createDiv();
     actions.addClass('fleur-card-actions');
 
@@ -392,35 +379,102 @@ export class SidebarView extends ItemView {
   // ── 导出 ──
 
   private async exportAllNotes() {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) { new Notice('请先打开一个 Markdown 文件'); return; }
+    try {
+      const file = this.app.workspace.getActiveFile();
+      if (!file) { new Notice('请先打开一个 Markdown 文件'); return; }
 
-    const lines: string[] = [`# ${file.basename} 批注导出`, '', `> 导出时间：${new Date().toLocaleString('zh-CN')}`, ''];
+      if (this.data.annotations.length === 0) {
+        new Notice('当前文件暂无批注可导出');
+        return;
+      }
 
-    const types: { type: string; label: string }[] = [
-      { type: 'highlight', label: '📝 高亮' },
-      { type: 'underline', label: '📏 划线' },
-      { type: 'comment', label: '💬 批注' },
-    ];
+      const lines: string[] = [];
 
-    for (const g of types) {
-      const items = this.data.annotations.filter(a => a.type === g.type);
-      if (items.length === 0) continue;
+      // ── frontmatter（自动标签 + 元信息） ──
+      const tags = (this.plugin.settings.exportTags || 'fleur-annotation,批注导出')
+        .split(/[,，\s]+/)
+        .map(t => t.trim())
+        .filter(Boolean);
+      lines.push('---');
+      lines.push(`tags: [${tags.join(', ')}]`);
+      lines.push(`source: "${file.path.replace(/"/g, '\\"')}"`);
+      lines.push(`exported: ${new Date().toISOString().split('T')[0]}`);
+      // ── 元信息（callout 风格，Obsidian 渲染时自动灰色背景） ──
+      // 注：不再生成插件内部 H1 标题，避免与 Obsidian 文件名标题重复
+      const counts = {
+        highlight: this.data.annotations.filter(a => a.type === 'highlight').length,
+        underline: this.data.annotations.filter(a => a.type === 'underline').length,
+        comment: this.data.annotations.filter(a => a.type === 'comment').length,
+      };
+      lines.push('---', '');
+      lines.push('> [!info] 导出信息', '');
+      lines.push(`> **🔗 原笔记：** [[${file.basename}]]`);
+      lines.push(`> **📅 导出时间：** ${new Date().toLocaleString('zh-CN')}`);
+      lines.push(`> **📊 统计：** 高亮 ${counts.highlight} 条 · 划线 ${counts.underline} 条 · 批注 ${counts.comment} 条`, '');
 
-      lines.push(`## ${g.label}（${items.length}条）`, '');
-      items.forEach(ann => {
-        lines.push(`- **${ann.text}**`);
-        if (ann.comment) lines.push(`  > ${ann.comment}`);
-        lines.push(`  _${new Date(ann.createdAt).toLocaleString('zh-CN')}_`, '');
-      });
+      // ── 三个分组 ──
+      const groups: { type: string; label: string; icon: string }[] = [
+        { type: 'highlight', label: '高亮', icon: 'highlighter' },
+        { type: 'underline', label: '划线', icon: 'underline' },
+        { type: 'comment', label: '批注', icon: 'message-square' },
+      ];
+
+      for (const g of groups) {
+        const items = this.data.annotations.filter(a => a.type === g.type);
+        if (items.length === 0) continue;
+
+        lines.push('---', '');
+        lines.push(`## ${g.label}（${items.length} 条）`, '');
+
+        items.forEach((ann, idx) => {
+          const cleanText = stripMarkdown(ann.text || '').trim();
+          const cleanComment = stripMarkdown(ann.comment || '').trim();
+          const time = new Date(ann.createdAt).toLocaleString('zh-CN');
+
+          // 选中文本（引用块，自动灰色底）
+          lines.push(`> [!quote] ${idx + 1}`);
+          lines.push(`> ${cleanText.replace(/\n/g, '\n> ')}`);
+          lines.push('>');
+
+          // 批注（如有）
+          if (cleanComment) {
+            lines.push(`> 💬 **批注：**`);
+            cleanComment.split('\n').forEach(line => {
+              lines.push(`> > ${line}`);
+            });
+            lines.push('>');
+          }
+
+          // 时间戳
+          lines.push(`> — <sub>${time}</sub>`, '');
+        });
+      }
+
+      // ── 页脚 ──
+      lines.push('---', '');
+      lines.push(`*由 **FleurAnnotation** 插件导出 · ${new Date().toLocaleDateString('zh-CN')}*`, '');
+
+      // ── 写入文件（覆盖模式） ──
+      const exportFolder = this.plugin.settings.noteFolder || 'FleurAnnotation';
+      try {
+        await this.app.vault.createFolder(exportFolder);
+      } catch { /* 文件夹已存在则忽略 */ }
+
+      const outPath = `${exportFolder}/批注 · ${file.basename}.md`;
+      const existing = this.app.vault.getAbstractFileByPath(outPath);
+      const content = lines.join('\n');
+
+      if (existing && existing instanceof TFile) {
+        await this.app.vault.modify(existing, content);
+        new Notice(`✅ 已覆盖 ${outPath}`, 5000);
+      } else {
+        await this.app.vault.create(outPath, content);
+        new Notice(`✅ 已导出到 ${outPath}`, 5000);
+      }
+    } catch (err) {
+      console.error('[FleurAnnotation] 导出失败:', err);
+      new Notice(`❌ 导出失败：${err instanceof Error ? err.message : String(err)}`, 8000);
     }
-
-    const exportFolder = this.plugin.settings.noteFolder || 'FleurAnnotation';
-    await this.app.vault.createFolder(exportFolder).catch(() => {});
-
-    const outPath = `${exportFolder}/${file.basename}-批注.md`;
-    await this.app.vault.create(outPath, lines.join('\n'));
-    new Notice(`已导出到 ${outPath}`);
   }
 
   private getFilePath(): string {

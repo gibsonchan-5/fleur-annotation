@@ -16,9 +16,11 @@ export interface FleurSettings {
   underlineColor: string;
 
   noteFolder: string;
+  exportTags: string;
 
   sidebarPosition: 'right' | 'left';
   sidebarDefaultOpen: boolean;
+  annotationSort: 'line' | 'time';
 
   readingContextMenu: boolean;
 }
@@ -32,8 +34,10 @@ export const DEFAULT_SETTINGS: FleurSettings = {
   underlineStyle: 'solid',
   underlineColor: '#E8590C',
   noteFolder: 'FleurAnnotation',
+  exportTags: 'fleur-annotation,批注导出',
   sidebarPosition: 'right',
   sidebarDefaultOpen: true,
+  annotationSort: 'line',
   readingContextMenu: true,
   temperature: 0.7,
   maxTokens: 8092,
@@ -86,13 +90,15 @@ export class FleurSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('API Key')
       .setDesc('仅保存在本地')
-      .addText(text => text
-        .setPlaceholder('sk-...')
-        .setValue(this.plugin.settings.apiKey)
-        .onChange(async (value) => {
-          this.plugin.settings.apiKey = value;
-          await this.plugin.saveSettings();
-        }));
+      .addText(text => {
+        text.inputEl.type = 'password';
+        text.setPlaceholder('sk-...')
+          .setValue(this.plugin.settings.apiKey)
+          .onChange(async (value) => {
+            this.plugin.settings.apiKey = value;
+            await this.plugin.saveSettings();
+          });
+      });
 
     new Setting(containerEl)
       .setName('Base URL')
@@ -306,6 +312,17 @@ export class FleurSettingTab extends PluginSettingTab {
           });
       });
 
+    new Setting(containerEl)
+      .setName('导出自动标签')
+      .setDesc('导出笔记时自动添加到文件属性（frontmatter）的标签，多个标签用逗号或空格分隔')
+      .addText(text => text
+        .setPlaceholder('fleur-annotation,批注导出')
+        .setValue(this.plugin.settings.exportTags)
+        .onChange(async (value) => {
+          this.plugin.settings.exportTags = value.trim();
+          await this.plugin.saveSettings();
+        }));
+
     // 菜单设置
     new Setting(containerEl).setHeading().setName('菜单设置');
 
@@ -341,6 +358,18 @@ export class FleurSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.sidebarDefaultOpen)
         .onChange(async (value) => {
           this.plugin.settings.sidebarDefaultOpen = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('批注排序')
+      .setDesc('侧边栏批注的排序方式：按内文顺序（文档中出现先后）或按时间（最近创建的在前）')
+      .addDropdown(dropdown => dropdown
+        .addOption('line', '按内文顺序')
+        .addOption('time', '按时间排序')
+        .setValue(this.plugin.settings.annotationSort)
+        .onChange(async (value) => {
+          this.plugin.settings.annotationSort = value as 'line' | 'time';
           await this.plugin.saveSettings();
         }));
   }

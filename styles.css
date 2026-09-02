@@ -293,11 +293,15 @@
 }
 
 .fleur-sidebar-header {
+  position: sticky;
+  top: -14px;
+  z-index: 10;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
+  background: var(--background-primary);
+  margin: -14px -16px 14px;
+  padding: 14px 16px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 

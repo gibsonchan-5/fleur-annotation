@@ -21,6 +21,7 @@ export interface FleurSettings {
   sidebarPosition: 'right' | 'left';
   sidebarDefaultOpen: boolean;
   annotationSort: 'line' | 'time';
+  annotationSortMigrated?: boolean;
 
   readingContextMenu: boolean;
 }

@@ -1,7 +1,7 @@
 {
   "id": "fleur-annotation",
   "name": "FleurAnnotation",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "minAppVersion": "1.8.0",
   "description": "Markdown 智能阅读与标注插件，支持高亮、划线、AI 批注与翻译。",
   "author": "gibsonchan5",

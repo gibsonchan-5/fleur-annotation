@@ -69,6 +69,12 @@ export default class FleurAnnotationPlugin extends Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // 用户要求默认按笔记上下文排序：仅一次把旧 time 设置迁移为 line，之后尊重用户选择
+    if (this.settings.annotationSort === 'time' && !this.settings.annotationSortMigrated) {
+      this.settings.annotationSort = 'line';
+      this.settings.annotationSortMigrated = true;
+      await this.saveSettings();
+    }
   }
 
   async saveSettings() {

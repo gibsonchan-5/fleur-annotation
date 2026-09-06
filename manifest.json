@@ -3,7 +3,7 @@
   "name": "FleurAnnotation",
   "version": "1.0.9",
   "minAppVersion": "1.8.0",
-  "description": "Markdown 智能阅读与标注插件，支持高亮、划线、AI 批注与翻译。",
+  "description": "Smart reading and annotation plugin for Markdown with highlights, underlines, AI annotations and translation.",
   "author": "gibsonchan5",
   "isDesktopOnly": false
 }

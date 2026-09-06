@@ -1,5 +1,14 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, DropdownComponent } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
+import {
+  PROMPT_PRESETS,
+  getPromptPreset,
+  getPresetPreview,
+  isCustomPresetKey,
+  getCustomSlot,
+  ANNOTATION_DEFAULT_BASE_LIMIT,
+} from './ai-prompts';
+import type { PromptPresetKey } from './ai-prompts';
 
 export interface FleurSettings {
   aiProvider: string;
@@ -9,7 +18,11 @@ export interface FleurSettings {
   temperature: number;
   maxTokens: number;
   topP: number;
-  systemPrompt: string;
+
+  // 提示词体系（仿 FleurPDF：预设模式 + 三个自定义槽）
+  promptPreset: PromptPresetKey; // AI 提示词预设模式
+  customPrompts: string[]; // 三个用户自定义提示词模版（custom-1/2/3 对应）
+  annotationLimit: number; // 侧边栏 AI 批注基准字数上限（正文「询问 AI」不限）
 
   highlightColor: string;
   underlineStyle: 'solid' | 'dashed' | 'dotted' | 'wavy';
@@ -25,6 +38,10 @@ export interface FleurSettings {
 
   readingContextMenu: boolean;
 }
+
+/** 旧版默认 System Prompt（仅用于迁移判断：与默认值相同则无需迁移） */
+export const LEGACY_DEFAULT_SYSTEM_PROMPT =
+  '你是一位专业的阅读助手，擅长把复杂内容解释清楚。回答要求：语言流畅自然，避免生硬的编号列表和小标题；适当分段，关键概念用加粗突出；既要有专业深度，也要通俗易懂，像一篇写得好的读书笔记。';
 
 export const DEFAULT_SETTINGS: FleurSettings = {
   aiProvider: 'deepseek',
@@ -43,7 +60,9 @@ export const DEFAULT_SETTINGS: FleurSettings = {
   temperature: 0.7,
   maxTokens: 8092,
   topP: 0.95,
-  systemPrompt: '你是一位专业的阅读助手，擅长把复杂内容解释清楚。回答要求：语言流畅自然，避免生硬的编号列表和小标题；适当分段，关键概念用加粗突出；既要有专业深度，也要通俗易懂，像一篇写得好的读书笔记。',
+  promptPreset: 'default',
+  customPrompts: ['', '', ''],
+  annotationLimit: ANNOTATION_DEFAULT_BASE_LIMIT,
 };
 
 export class FleurSettingTab extends PluginSettingTab {
@@ -162,20 +181,99 @@ export class FleurSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    // 自定义 System Prompt
+    // ── 提示词模式（预设选项卡，仿 FleurPDF） ──
+    //
+    // 切换模式时只重绘下方的「详情区」，不调用 this.display() 重建整个面板。
+    // 重建会销毁当前获得焦点的 <select>，浏览器在 DOM 变动后重新定位焦点，
+    // 表现为设置窗口自己滚动一下。局部重绘即可避免。
+    let dropdownComp: DropdownComponent | null = null;
+
     new Setting(containerEl)
-      .setName('System Prompt')
-      .setDesc('定义 AI 助手的回答风格，留空则使用默认 prompt')
-      .addTextArea(text => text
-        .setPlaceholder('输入自定义 prompt…')
-        .setValue(this.plugin.settings.systemPrompt)
-        .then(textArea => {
-          textArea.inputEl.rows = 6;
-          textArea.inputEl.addClass('fleur-setting-textarea');
-        })
+      .setName('提示词模式')
+      .setDesc('选择 AI 生成批注与回答时的角色定位。内置 7 个阅读助手模版，另可自定义 3 个提示词模版')
+      .addDropdown(dropdown => {
+        dropdownComp = dropdown;
+        PROMPT_PRESETS.forEach(p => dropdown.addOption(p.key, p.label));
+        dropdown.setValue(this.plugin.settings.promptPreset)
+          .onChange(async (value) => {
+            this.plugin.settings.promptPreset = value as PromptPresetKey;
+            await this.plugin.saveSettings();
+            renderPromptDetail();
+          });
+      });
+
+    const promptDetailEl = containerEl.createDiv();
+    promptDetailEl.addClass('fleur-setting-prompt-detail');
+
+    const renderPromptDetail = () => {
+      promptDetailEl.empty();
+      const preset = getPromptPreset(this.plugin.settings.promptPreset) ?? PROMPT_PRESETS[0];
+      const baseLimit = this.plugin.settings.annotationLimit || ANNOTATION_DEFAULT_BASE_LIMIT;
+
+      if (isCustomPresetKey(this.plugin.settings.promptPreset)) {
+        const slot = getCustomSlot(this.plugin.settings.promptPreset);
+        new Setting(promptDetailEl)
+          .setName(`自定义提示词 ${slot}`)
+          .setDesc('留空则回落到「默认」模式。可配置 3 个自定义模版，在下拉中选择对应槽位使用')
+          .setClass('fleur-setting-block')
+          .addTextArea(text => text
+            .setPlaceholder('在此写下你自己的系统提示词。例如：你是一位……请根据用户高亮的文本……')
+            .setValue(this.plugin.settings.customPrompts[slot - 1] ?? '')
+            .then(textArea => {
+              textArea.inputEl.rows = 10;
+            })
+            .onChange(async (value) => {
+              const idx = slot - 1;
+              if (!this.plugin.settings.customPrompts) this.plugin.settings.customPrompts = ['', '', ''];
+              this.plugin.settings.customPrompts[idx] = value;
+              await this.plugin.saveSettings();
+            }));
+      } else {
+        const previewSetting = new Setting(promptDetailEl)
+          .setName('当前提示词')
+          .setDesc(`仅侧边栏「AI 生成批注」受 ${baseLimit} 字限制（原文过长自动放宽），正文「询问 AI」不限。`);
+
+        // 用一个 wrapper 包住「提示词正文」和「附注」，让 wrapper 整体占满剩余空间，
+        // 避免附注和铅笔按钮跟预览框在 flex 容器里平级抢宽度。
+        const previewWrap = previewSetting.controlEl.createDiv();
+        previewWrap.addClass('fleur-setting-prompt-block');
+
+        const preview = previewWrap.createDiv();
+        preview.addClass('fleur-setting-prompt-preview');
+        preview.textContent = getPresetPreview(preset, baseLimit);
+
+        previewSetting.addExtraButton(btn => btn
+          .setIcon('pencil')
+          .setTooltip('以此为基础改为自定义')
+          .onClick(async () => {
+            // 当前已在自定义槽则覆写该槽，否则写入「自定义 1」并切换过去
+            const current = this.plugin.settings.promptPreset;
+            const slot = isCustomPresetKey(current) ? getCustomSlot(current) : 1;
+            this.plugin.settings.promptPreset = (`custom-${slot}`) as PromptPresetKey;
+            const idx = slot - 1;
+            if (!this.plugin.settings.customPrompts) this.plugin.settings.customPrompts = ['', '', ''];
+            this.plugin.settings.customPrompts[idx] = preset.body;
+            await this.plugin.saveSettings();
+            dropdownComp?.setValue(this.plugin.settings.promptPreset);
+            renderPromptDetail();
+          }));
+      }
+    };
+
+    renderPromptDetail();
+
+    // 侧边栏 AI 批注字数上限（正文「询问 AI」不受此限制）
+    new Setting(containerEl)
+      .setName('侧边栏批注字数上限')
+      .setDesc('侧边栏「AI 生成批注」的输出基准字数。选中原文较长时上限会自动放宽；正文「询问 AI」不设字数限制')
+      .addSlider(slider => slider
+        .setLimits(100, 600, 10)
+        .setValue(this.plugin.settings.annotationLimit || ANNOTATION_DEFAULT_BASE_LIMIT)
+        .setDynamicTooltip()
         .onChange(async (value) => {
-          this.plugin.settings.systemPrompt = value.trim();
+          this.plugin.settings.annotationLimit = value;
           await this.plugin.saveSettings();
+          renderPromptDetail();
         }));
 
     // 测试连接按钮

@@ -3,7 +3,7 @@ import { Plugin, WorkspaceLeaf, TFile, Notice, MarkdownView, Menu } from 'obsidi
 import { SidebarView, VIEW_TYPE_FLEUR_NOTE } from './sidebar';
 import { MarkdownPatcher } from './patcher';
 import { AnnotationStore } from './store';
-import { FleurSettings, DEFAULT_SETTINGS, FleurSettingTab } from './settings';
+import { FleurSettings, DEFAULT_SETTINGS, FleurSettingTab, LEGACY_DEFAULT_SYSTEM_PROMPT } from './settings';
 
 export default class FleurAnnotationPlugin extends Plugin {
   store: AnnotationStore;
@@ -68,7 +68,23 @@ export default class FleurAnnotationPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const raw = (await this.loadData()) as (Partial<FleurSettings> & { systemPrompt?: string }) | null;
+    const settings = Object.assign({}, DEFAULT_SETTINGS, raw ?? {});
+
+    // 旧版（≤1.0.8）只有一个 systemPrompt 字段。迁移：
+    // 若用户改过（非默认值），迁入「自定义提示词 1」槽并选中 custom-1，避免自定义内容丢失。
+    const legacyPrompt = raw?.systemPrompt;
+    if (legacyPrompt && legacyPrompt.trim() && legacyPrompt !== LEGACY_DEFAULT_SYSTEM_PROMPT && !raw?.promptPreset) {
+      settings.customPrompts = [legacyPrompt.trim(), '', ''];
+      settings.promptPreset = 'custom-1';
+    }
+    // 自定义槽兜底：保证长度恒为 3
+    if (!Array.isArray(settings.customPrompts) || settings.customPrompts.length < 3) {
+      const list = Array.isArray(settings.customPrompts) ? settings.customPrompts : [];
+      settings.customPrompts = [list[0] ?? '', list[1] ?? '', list[2] ?? ''];
+    }
+    this.settings = settings;
+
     // 用户要求默认按笔记上下文排序：仅一次把旧 time 设置迁移为 line，之后尊重用户选择
     if (this.settings.annotationSort === 'time' && !this.settings.annotationSortMigrated) {
       this.settings.annotationSort = 'line';

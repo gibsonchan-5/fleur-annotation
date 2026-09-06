@@ -736,3 +736,62 @@
 .fleur-ai-send-btn.is-streaming {
   background: var(--background-modifier-hover);
 }
+
+/* ══════════════════════════════════════════════
+   设置页「提示词模式」（仿 FleurPDF 交互）
+   ═══════════════════════════════════════════════ */
+.fleur-setting-prompt-detail {
+  margin-top: 2px;
+}
+
+/* 自定义提示词编辑区：独占整行 */
+.setting-item.fleur-setting-block {
+  flex-wrap: wrap;
+}
+
+.setting-item.fleur-setting-block .setting-item-info,
+.setting-item.fleur-setting-block .setting-item-control {
+  flex: 1 1 100%;
+}
+
+.setting-item.fleur-setting-block .setting-item-control {
+  padding-top: 6px;
+}
+
+.setting-item.fleur-setting-block textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.55;
+}
+
+.setting-item.fleur-setting-block textarea::placeholder {
+  color: var(--text-faint);
+}
+
+/* 预览区容器：占满 Setting controlEl 的剩余空间，内部用 column 流布局 */
+.fleur-setting-prompt-block {
+  flex: 1;
+  min-width: 0;       /* 允许 flex item 在父容器变窄时被压缩，而不是按内容撑开 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 只读预览：显示当前模式实际会发送的提示词 */
+.fleur-setting-prompt-preview {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}

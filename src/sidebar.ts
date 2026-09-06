@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu, TFile, MarkdownView } from 'obsidian';
 import { stripMarkdown } from './editor';
+import { resolveSystemPrompt } from './ai-prompts';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
@@ -355,8 +356,23 @@ export class SidebarView extends ItemView {
         const service = new AIService(this.plugin);
         let result = '';
 
+        // 系统提示词：按设置的「提示词模式」取用，自定义模式用对应槽位的内容。
+        // 侧边栏是批注场景，需要精炼 → 追加字数约束；原文过长时上限自动放宽。
+        const systemPrompt = resolveSystemPrompt(
+          this.plugin.settings.promptPreset,
+          this.plugin.settings.customPrompts,
+          {
+            applyLimit: true,
+            sourceTextLength: ann.text.length,
+            baseLimit: this.plugin.settings.annotationLimit,
+          }
+        );
+
         await service.streamChat(
-          [{ role: 'user', content: `请为以下文本生成一段简明批注（100-200字）。要求：1）概括核心观点；2）简析逻辑或论证方式；3）点出深层含义或影响。直接输出批注内容，不要加"批注："等前缀，不要使用 Markdown 格式。\n\n「${ann.text}」` }],
+          [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `请为以下选中文本生成批注：\n\n「${ann.text}」` },
+          ],
           (text) => { result += text; }
         );
 

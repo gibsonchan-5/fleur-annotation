@@ -1,7 +1,7 @@
 import { MarkdownRenderer, Notice } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import { AIService } from './ai-service';
-import { DEFAULT_SETTINGS } from './settings';
+import { resolveSystemPrompt, resolveAskHint } from './ai-prompts';
 
 const ICON_SEND = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
 const ICON_STOP = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>`;
@@ -385,11 +385,23 @@ export class AIChatPanel {
     if (this.initialSent) return;
     this.initialSent = true;
 
-    const question = this.mode === 'translate'
-      ? '请将以下文本翻译成' + (this.isChinese(this.selectedText) ? '英文' : '中文') + '。只输出翻译结果，不要附加任何额外解释。'
-      : '请解释这段话的核心意思，指出值得关注的要点。';
+    let systemPrompt: string;
+    let userMessage: string;
 
-    const systemPrompt = this.plugin.settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt;
+    if (this.mode === 'translate') {
+      // 翻译模式：专用角色，保持独立，不跟随「提示词模式」设置
+      systemPrompt = '你是一位专业的翻译助手。请将用户提供的文本翻译成中文，保持原文的语义和风格。如果原文已经是中文，则翻译成英文。回答时只给出翻译结果，不需要额外解释。';
+      userMessage = `请翻译以下内容：\n\n「${this.selectedText}」`;
+    } else {
+      // 解释模式：跟随设置里选的「提示词模式」，但作为对话场景不设字数限制
+      systemPrompt = resolveSystemPrompt(
+        this.plugin.settings.promptPreset,
+        this.plugin.settings.customPrompts
+      );
+      systemPrompt += '回答时使用 Markdown 格式，标题用 ## 或 ###，重点加粗。';
+      const hint = resolveAskHint(this.plugin.settings.promptPreset);
+      userMessage = `以下是我从文档中选中的内容：\n\n「${this.selectedText}」\n\n${hint}`;
+    }
 
     this.chatHistory = [
       {
@@ -398,7 +410,7 @@ export class AIChatPanel {
       },
       {
         role: 'user',
-        content: `以下是我从文档中选中的内容：\n\n「${this.selectedText}」\n\n${question}`
+        content: userMessage
       }
     ];
 
@@ -485,12 +497,7 @@ export class AIChatPanel {
     this.stopIconEl.toggleClass('fleur-hidden', !this.isStreaming);
   }
 
-  private isChinese(text: string): boolean {
-    return /[\u4e00-\u9fff]/.test(text);
-  }
-
-  /** 将 AI 回复保存为笔记，默认存到 FleurAnnotation 文件夹 */
-  private async saveToNote(content: string) {
+  /** 将 AI 回复保存为笔记，默认存到 FleurAnnotation 文件夹 */  private async saveToNote(content: string) {
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) {
       new Notice('请先打开一个笔记');

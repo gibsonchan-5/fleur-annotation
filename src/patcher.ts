@@ -319,6 +319,14 @@ export class MarkdownPatcher {
     const menu = new Menu();
 
     menu.addItem((item) => {
+      item.setTitle('复制');
+      item.setIcon('copy');
+      item.onClick(() => this.copyText(selection));
+    });
+
+    menu.addSeparator();
+
+    menu.addItem((item) => {
       item.setTitle('添加高亮');
       item.setIcon('highlighter');
       item.onClick(() => {
@@ -365,6 +373,9 @@ export class MarkdownPatcher {
     if (selection && selection.trim().length > 0) {
       this.lastSelection = selection;
 
+    } else {
+      // 选区已取消：清空缓存，避免右键时误操作上一次的旧选区
+      this.lastSelection = null;
     }
   }
 
@@ -693,6 +704,40 @@ export class MarkdownPatcher {
 
     // 延迟注入气泡（等待 DOM 更新）
     setTimeout(() => this.forceInject(), 500);
+  }
+
+  // ═══════════════════════════════════════════
+  //  复制
+  // ═══════════════════════════════════════════
+
+  /** 复制文本到剪贴板（优先 Clipboard API，失败回退 execCommand） */
+  private async copyText(text: string) {
+    if (!text) return;
+    const fallback = () => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setCssStyles({ position: 'fixed', top: '0', left: '0', opacity: '0' });
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        new Notice(ok ? '已复制' : '复制失败');
+      } catch {
+        new Notice('复制失败');
+      }
+    };
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        new Notice('已复制');
+        return;
+      }
+      fallback();
+    } catch {
+      fallback();
+    }
   }
 
   // ═══════════════════════════════════════════

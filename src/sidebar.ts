@@ -25,6 +25,23 @@ function makeIcon(parent: HTMLElement, size: number, children: Array<[string, Re
   parent.appendChild(svg);
 }
 
+/** 与 FleurPDF 对齐：按背景色亮度挑选黑/白前景，保证高亮文字可读 */
+function pickReadableFg(bg: string): string {
+  const hex = bg.replace('#', '');
+  if (hex.length !== 3 && hex.length !== 6) return '#000';
+  const r = parseInt(hex.length === 3 ? hex[0] + hex[0] : hex.slice(0, 2), 16);
+  const g = parseInt(hex.length === 3 ? hex[1] + hex[1] : hex.slice(2, 4), 16);
+  const b = parseInt(hex.length === 3 ? hex[2] + hex[2] : hex.slice(4, 6), 16);
+  // sRGB 相对亮度阈值 0.6 经验值（黑/白分明）
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luma > 0.6 ? '#000' : '#fff';
+}
+
+/** 导出为 HTML 内联片段前的转义，避免正文里的 < > & 破坏标签 */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export const VIEW_TYPE_FLEUR_NOTE = 'fleur-annotation-sidebar';
 
 export class SidebarView extends ItemView {
@@ -444,12 +461,27 @@ export class SidebarView extends ItemView {
 
         items.forEach((ann, idx) => {
           const cleanText = stripMarkdown(ann.text || '').trim();
+          // 内联 span 渲染：换行收敛为空格，避免 HTML 片段被段落切断
+          const inlineText = cleanText.replace(/\s*\n\s*/g, ' ').trim();
           const cleanComment = stripMarkdown(ann.comment || '').trim();
           const time = new Date(ann.createdAt).toLocaleString('zh-CN');
 
+          // 与 FleurPDF 导出格式对齐：
+          // 高亮 → 保留具体底色；划线 → 保留下划线颜色与线型（wavy 为波浪线）
+          let display = escapeHtml(inlineText);
+          if (ann.type === 'highlight') {
+            const hlColor = ann.color || this.plugin.settings.highlightColor || '#FFD43B';
+            const fg = pickReadableFg(hlColor);
+            display = `<span style="background-color:${hlColor};color:${fg};padding:0 2px;border-radius:2px">${display}</span>`;
+          } else if (ann.type === 'underline') {
+            const ulColor = ann.color || this.plugin.settings.underlineColor || '#E8590C';
+            const style = ann.underlineStyle || this.plugin.settings.underlineStyle || 'solid';
+            display = `<span style="text-decoration:underline;text-decoration-color:${ulColor};text-decoration-style:${style}">${display}</span>`;
+          }
+
           // 选中文本（引用块，自动灰色底）
           lines.push(`> [!quote] ${idx + 1}`);
-          lines.push(`> ${cleanText.replace(/\n/g, '\n> ')}`);
+          lines.push(`> ${display}`);
           lines.push('>');
 
           // 批注（如有）

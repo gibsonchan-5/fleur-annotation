@@ -1,7 +1,7 @@
 {
   "id": "fleur-annotation",
   "name": "FleurAnnotation",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "minAppVersion": "1.8.0",
   "description": "Smart reading and annotation plugin for Markdown with highlights, underlines, AI annotations and translation.",
   "author": "gibsonchan5",

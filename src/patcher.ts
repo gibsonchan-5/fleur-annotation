@@ -3,6 +3,7 @@
 import { Menu, MarkdownView, Notice, Modal, TFile } from 'obsidian';
 import type { Editor } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
+import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
 import { wrapSelection, appendToSelection, findAndReplace, getReadingModeSelection, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
 
@@ -738,6 +739,89 @@ export class MarkdownPatcher {
     } catch {
       fallback();
     }
+  }
+
+  // ═══════════════════════════════════════════
+  //  侧边栏定位（对齐 FleurPDF：滚动居中 + 闪烁）
+  // ═══════════════════════════════════════════
+
+  /** 上一次闪烁清理定时器 */
+  private locateFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 从侧边栏定位到原文中的标注：
+   * 1) data-fleur-annotation 属性精确匹配（注入过批注气泡的标注）
+   * 2) mark / .cm-highlight / u 渲染文本匹配（阅读模式 + Live Preview）
+   * 3) 编辑模式下按记录的行号 setCursor + scrollIntoView
+   */
+  async revealAnnotation(ann: Annotation) {
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice('未找到原文文件');
+      return;
+    }
+
+    const norm = (s: string) => s.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF]+/g, '').toLowerCase();
+    const target = norm(ann.text || '');
+
+    let hit: HTMLElement | null = null;
+
+    const containers = document.querySelectorAll('.markdown-preview-view, .markdown-source-view');
+    for (const container of Array.from(containers)) {
+      // 1) 已注入 data 属性的（带批注的标注）
+      const byId = container.querySelector(`[data-fleur-annotation="${ann.id}"]`) as HTMLElement | null;
+      if (byId) {
+        hit = byId;
+        break;
+      }
+      if (!target) continue;
+
+      // 2) 渲染后的标注元素文本匹配
+      const marks = container.querySelectorAll('mark, .cm-highlight, u');
+      for (const m of Array.from(marks)) {
+        const t = norm(m.textContent || '');
+        if (t && (t === target || t.includes(target) || target.includes(t))) {
+          hit = m as HTMLElement;
+          break;
+        }
+      }
+      if (hit) break;
+    }
+
+    if (hit) {
+      hit.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      this.flashLocate(hit);
+      return;
+    }
+
+    // 3) 编辑模式按行号定位
+    const view = this.getActiveView();
+    const editor = view?.editor;
+    if (editor && typeof ann.line === 'number' && ann.line >= 0 && ann.line < editor.lineCount()) {
+      const line = ann.line;
+      editor.setCursor({ line, ch: 0 });
+      editor.scrollIntoView(
+        { from: { line, ch: 0 }, to: { line: Math.min(line + 1, editor.lineCount() - 1), ch: 0 } },
+        true
+      );
+      return;
+    }
+
+    new Notice('未能在原文中定位到该标注');
+  }
+
+  /** 定位闪烁：outline 动画不影响原高亮/划线样式 */
+  private flashLocate(el: HTMLElement) {
+    if (this.locateFlashTimer) {
+      clearTimeout(this.locateFlashTimer);
+      this.locateFlashTimer = null;
+    }
+    document.querySelectorAll('.fleur-locate-flash').forEach(e => e.removeClass('fleur-locate-flash'));
+    el.addClass('fleur-locate-flash');
+    this.locateFlashTimer = setTimeout(() => {
+      el.removeClass('fleur-locate-flash');
+      this.locateFlashTimer = null;
+    }, 2000);
   }
 
   // ═══════════════════════════════════════════

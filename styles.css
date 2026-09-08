@@ -795,3 +795,41 @@
   word-break: break-word;
   user-select: text;
 }
+
+/* ══════════════════════════════════════════════
+   侧边栏定位（对齐 FleurPDF）
+   ══════════════════════════════════════════════ */
+
+.fleur-card-locate-btn {
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fleur-card-locate-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+/* 原文标注定位闪烁：outline 不干扰原高亮底色/下划线 */
+.fleur-locate-flash {
+  animation: fleur-locate-flash-anim 0.9s ease-in-out 2;
+  border-radius: 3px;
+}
+@keyframes fleur-locate-flash-anim {
+  0%, 100% {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+  40% {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+  }
+}

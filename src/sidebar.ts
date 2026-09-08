@@ -187,9 +187,25 @@ export class SidebarView extends ItemView {
       textEl.toggleClass('is-expanded', expanded);
     });
 
-    // 卡片右上角操作图标（AI/编辑/删除）
+    // 卡片主体点击 → 定位到原文（对齐 FleurPDF 的定位能力）
+    // 文本区、批注区、操作按钮均有 stopPropagation，不会误触发
+    main.addEventListener('click', () => {
+      void this.plugin.patcher.revealAnnotation(ann);
+    });
+
+    // 卡片右上角操作图标（定位/AI/编辑/删除）
     const actions = row.createDiv();
     actions.addClass('fleur-card-actions');
+
+    // 定位按钮：滚动到原文并闪烁该标注
+    const locateBtn = actions.createEl('button');
+    locateBtn.title = '定位到原文';
+    locateBtn.addClass('fleur-card-locate-btn');
+    makeIcon(locateBtn, 13, [['path', { d: 'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z' }], ['circle', { cx: '12', cy: '10', r: '3' }]]);
+    locateBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void this.plugin.patcher.revealAnnotation(ann);
+    });
 
     // AI 生成批注按钮
     const aiBtn = actions.createEl('button');
@@ -285,7 +301,10 @@ export class SidebarView extends ItemView {
 
     const hint = slot.createDiv({ text: '添加批注…' });
     hint.addClass('fleur-comment-hint');
-    hint.addEventListener('click', () => this.openInlineEditor(ann, cardMain));
+    hint.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.openInlineEditor(ann, cardMain);
+    });
   }
 
   /** 原位编辑器：直接在批注位置替换为 textarea，Enter 保存，Esc/点击外部取消 */
@@ -300,6 +319,8 @@ export class SidebarView extends ItemView {
     const editorWrap = slot.createDiv();
     editorWrap.dataset['commentEditorFor'] = ann.id;
     editorWrap.addClass('fleur-comment-editor-wrap');
+    // 阻止冒泡到卡片主体，避免编辑时误触发定位
+    editorWrap.addEventListener('click', (e) => e.stopPropagation());
 
     const textarea = editorWrap.createEl('textarea');
     textarea.value = ann.comment || '';

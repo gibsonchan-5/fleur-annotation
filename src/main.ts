@@ -4,11 +4,26 @@ import { SidebarView, VIEW_TYPE_FLEUR_NOTE } from './sidebar';
 import { MarkdownPatcher } from './patcher';
 import { AnnotationStore } from './store';
 import { FleurSettings, DEFAULT_SETTINGS, FleurSettingTab, LEGACY_DEFAULT_SYSTEM_PROMPT } from './settings';
+import {
+  hydrateSecrets,
+  scrubSecretsForPersistence,
+  secretStorageAvailable,
+  migrateSecrets,
+  resolveBackend,
+  type SecretBackend,
+} from './secret-store';
 
 export default class FleurAnnotationPlugin extends Plugin {
   store: AnnotationStore;
   patcher: MarkdownPatcher;
   settings: FleurSettings = DEFAULT_SETTINGS;
+  /** 本机 Obsidian 是否支持官方 SecretStorage（系统钥匙串）。 */
+  secretStorageAvailable = false;
+
+  /** 当前实际生效的密钥后端（system=钥匙串，vault=data.json 明文）。 */
+  get secretBackend(): SecretBackend {
+    return resolveBackend(this.app, this.settings.secretStorageMode);
+  }
 
   async onload() {
     await this.loadSettings();
@@ -85,6 +100,20 @@ export default class FleurAnnotationPlugin extends Plugin {
     }
     this.settings = settings;
 
+    // API Key 存入系统钥匙串；磁盘上若还留有明文，在这里迁走并清掉。
+    // 用户切到 data.json 模式时则反其道行之：文件即真相，不写钥匙串。
+    this.secretStorageAvailable = secretStorageAvailable(this.app);
+    const secretState = await hydrateSecrets(
+      this.app,
+      this.settings as unknown as Record<string, unknown>,
+      raw as Record<string, unknown> | null,
+      this.secretBackend,
+    );
+    if (secretState.migrated.length > 0) {
+      await this.saveSettings();
+      new Notice('FleurAnnotation：API Key 已移入系统钥匙串，data.json 中不再保存明文');
+    }
+
     // 用户要求默认按笔记上下文排序：仅一次把旧 time 设置迁移为 line，之后尊重用户选择
     if (this.settings.annotationSort === 'time' && !this.settings.annotationSortMigrated) {
       this.settings.annotationSort = 'line';
@@ -94,7 +123,44 @@ export default class FleurAnnotationPlugin extends Plugin {
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    // 密钥只写系统钥匙串；写盘时从副本里抹掉（钥匙串不可用时保留明文，避免丢密钥）。
+    // data.json 模式下原样落盘——明文正是用户的选择。
+    await this.saveData(
+      await scrubSecretsForPersistence(
+        this.app,
+        this.settings as unknown as Record<string, unknown>,
+        this.secretBackend,
+      ),
+    );
+  }
+
+  /**
+   * 切换密钥保存位置并搬迁现有密钥。
+   *
+   * 搬入钥匙串逐字段校验；任何一步写不进去就回滚到原模式，
+   * 宁可维持明文也不丢密钥。
+   */
+  async setSecretStorageMode(
+    mode: 'system' | 'vault',
+  ): Promise<{ ok: boolean; failed: string[] }> {
+    const previous = this.settings.secretStorageMode;
+    const target = resolveBackend(this.app, mode);
+
+    this.settings.secretStorageMode = mode;
+    const result = await migrateSecrets(
+      this.app,
+      this.settings as unknown as Record<string, unknown>,
+      target,
+    );
+
+    if (!result.ok) {
+      this.settings.secretStorageMode = previous;
+      await this.saveSettings();
+      return { ok: false, failed: [...result.failed] };
+    }
+
+    await this.saveSettings();
+    return { ok: true, failed: [] };
   }
 
   async activateSidebar() {

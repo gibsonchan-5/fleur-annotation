@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, DropdownComponent } from 'obsidian';
+import { App, PluginSettingTab, Setting, DropdownComponent, Notice } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import {
   PROMPT_PRESETS,
@@ -13,6 +13,8 @@ import type { PromptPresetKey } from './ai-prompts';
 export interface FleurSettings {
   aiProvider: string;
   apiKey: string;
+  /** 密钥保存位置：system=系统钥匙串（默认），vault=data.json 明文随 vault 同步。 */
+  secretStorageMode: 'system' | 'vault';
   baseUrl: string;
   model: string;
   temperature: number;
@@ -46,6 +48,7 @@ export const LEGACY_DEFAULT_SYSTEM_PROMPT =
 export const DEFAULT_SETTINGS: FleurSettings = {
   aiProvider: 'deepseek',
   apiKey: '',
+  secretStorageMode: 'system',
   baseUrl: 'https://api.deepseek.com/v1',
   model: 'deepseek-chat',
   highlightColor: '#FFD43B',
@@ -107,9 +110,54 @@ export class FleurSettingTab extends PluginSettingTab {
           this.display();
         }));
 
+    // 密钥存储位置
+    const secretSection = containerEl.createDiv('fleurannotation-settings-section');
+    new Setting(secretSection).setHeading().setName('密钥存储');
+
+    secretSection.createEl('p', {
+      text: '决定 API Key 保存在哪里。切换后密钥会自动搬到新位置，不会丢失，也不需要重新填写。',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(secretSection)
+      .setName('密钥保存位置')
+      .setDesc(
+        this.plugin.secretStorageAvailable
+          ? '系统钥匙串更安全，但密钥不进 vault，因此每台设备都要各自填写一次；data.json 可随 vault 同步给多台设备共用，代价是密钥以明文保存在仓库中。'
+          : '当前 Obsidian 版本不支持系统钥匙串，密钥只能明文保存在 data.json。',
+      )
+      .addDropdown((dropdown) => {
+        dropdown.addOption('system', '系统钥匙串（推荐）');
+        dropdown.addOption('vault', 'data.json（随 vault 同步）');
+        dropdown.setValue(this.plugin.secretBackend);
+        if (!this.plugin.secretStorageAvailable) {
+          dropdown.setDisabled(true);
+        }
+        dropdown.onChange(async (value) => {
+          const mode = value === 'vault' ? 'vault' : 'system';
+          const result = await this.plugin.setSecretStorageMode(mode);
+          if (!result.ok) {
+            new Notice('FleurAnnotation：密钥移入系统钥匙串失败，已保持原设置');
+          } else if (mode === 'vault') {
+            new Notice('FleurAnnotation：密钥将以明文保存在 data.json，并随 vault 同步');
+          } else {
+            new Notice('FleurAnnotation：密钥已移入系统钥匙串，data.json 中不再保存明文');
+          }
+          // 重新渲染，让密钥说明与警告同步更新
+          this.display();
+        });
+      });
+
+    if (this.plugin.secretStorageAvailable && this.plugin.secretBackend === 'vault') {
+      secretSection.createEl('p', {
+        text: '注意：当前为明文存储。密钥会随 Obsidian Sync / iCloud / OneDrive 上传到云端，请确认你接受这一点。',
+        cls: 'setting-item-description mod-warning',
+      });
+    }
+
     new Setting(containerEl)
       .setName('API Key')
-      .setDesc('仅保存在本地')
+      .setDesc(this.secretDesc())
       .addText(text => {
         text.inputEl.type = 'password';
         text.setPlaceholder('sk-...')
@@ -471,5 +519,17 @@ export class FleurSettingTab extends PluginSettingTab {
           this.plugin.settings.annotationSort = value as 'line' | 'time';
           await this.plugin.saveSettings();
         }));
+  }
+
+  /**
+   * 描述密钥当前保存在哪里，措辞与「密钥保存位置」设置保持一致。
+   */
+  private secretDesc(): string {
+    if (!this.plugin.secretStorageAvailable) {
+      return 'API Key。当前 Obsidian 版本不支持系统钥匙串，将以明文保存在 data.json。';
+    }
+    return this.plugin.secretBackend === 'system'
+      ? 'API Key。已保存在系统钥匙串，不会写入 data.json，也不会随 vault 同步。'
+      : 'API Key。当前以明文保存在 data.json，会随 vault 同步到其他设备。';
   }
 }

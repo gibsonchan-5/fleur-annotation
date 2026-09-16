@@ -91,7 +91,6 @@
   background: var(--background-primary);
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.15s ease;
 }
 .fleur-ai-input:focus {
   border-color: var(--interactive-accent);
@@ -180,12 +179,70 @@
    CommentModal（批注弹窗）
    ══════════════════════════════════════════════ */
 .fleur-annotation-comment-modal {
-  width: 520px !important;
-  max-width: 90vw !important;
+  /* 默认 520px；宽度可通过右下角手柄调整（此处不能加 !important），高度固定 */
+  width: 520px;
+  height: 460px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
+/* 高度固定：内容区弹性填充并滚动 */
 .fleur-annotation-comment-modal .modal-content {
   padding: 24px 28px 20px !important;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 批注输入框弹性占满剩余高度，内部滚动 */
+.fleur-annotation-comment-modal .fleur-modal-textarea {
+  flex: 1;
+  min-height: 96px;
+  resize: none;
+}
+
+/* 拖拽手柄（标题栏） */
+.fleur-modal-drag-handle {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.fleur-modal-dragging,
+body.fleur-modal-dragging * {
+  cursor: grabbing !important;
+}
+
+/* 右下角缩放手柄（仅横向调宽） */
+.fleur-modal-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: ew-resize;
+  z-index: 10;
+  border-radius: 0 0 8px 0;
+}
+.fleur-modal-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 10px;
+  height: 4px;
+  border-left: 2px solid var(--text-faint);
+  border-right: 2px solid var(--text-faint);
+  border-radius: 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.fleur-modal-resize-handle:hover::after {
+  opacity: 1;
+  border-color: var(--text-muted);
 }
 
 .fleur-annotation-comment-modal textarea:focus {
@@ -236,11 +293,9 @@
   resize: vertical;
   font-family: inherit;
   box-sizing: border-box;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .fleur-modal-textarea:focus {
   border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px var(--interactive-accent-hover, rgba(99,102,241,0.15));
 }
 
 .fleur-modal-btn-row {
@@ -832,4 +887,82 @@
     outline: 2px solid var(--interactive-accent);
     outline-offset: 2px;
   }
+}
+
+/* ══════════════════════════════════════════════
+   textarea 输入防闪（中文 IME 组词时底色闪烁）
+   ═══════════════════════════════════════════════
+   根因不在插件：Obsidian 核心 app.css 有全局规则
+
+     @media (hover: hover) {
+       textarea:hover {
+         background-color: var(--background-modifier-form-field-hover);
+         border-color: var(--background-modifier-border-hover);
+         transition: ...;
+       }
+     }
+     textarea:active, textarea:focus { border-color: ...; transition: ...; }
+
+   中文输入法首次进入 composition 合成状态时，Chromium 的 :hover 伪类会短暂抖动，
+   反复触发 textarea 背景在 form-field（白）↔ form-field-hover（灰）之间切换，
+   观感即「打中文时开头几个字底色灰白来回闪」。
+
+   这里把所有插件 textarea 的状态样式锁成恒定值（!important 压过核心规则与主题），
+   并把元素提升为独立合成层，使输入引发的 repaint 只落在这个元素自己的纹理上。
+   注意：focus 块必须放在 hover/active 块之后（同特异性，靠顺序取胜），保证聚焦时焦点色不丢。
+   ═══════════════════════════════════════════════ */
+
+/* ── 基础恒定性 ── */
+.fleur-modal-textarea,
+.fleur-ai-input,
+.fleur-comment-textarea {
+  background-color: var(--background-primary) !important;
+  border-color: var(--background-modifier-border) !important;
+  box-shadow: none !important;
+  transition: none !important;
+  -webkit-text-fill-color: var(--text-normal);
+  caret-color: var(--text-normal);
+  /* 独立合成层：隔离输入引发的重绘 */
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* ── hover / active 状态锁死（不随鼠标抖动换底色） ── */
+.fleur-modal-textarea:hover,
+.fleur-modal-textarea:active,
+.fleur-ai-input:hover,
+.fleur-ai-input:active,
+.fleur-comment-textarea:hover,
+.fleur-comment-textarea:active {
+  background-color: var(--background-primary) !important;
+  border-color: var(--background-modifier-border) !important;
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+/* ── focus：只换边框色，不做过渡动画 ── */
+.fleur-modal-textarea:focus,
+.fleur-ai-input:focus,
+.fleur-comment-textarea:focus {
+  background-color: var(--background-primary) !important;
+  border-color: var(--interactive-accent) !important;
+  box-shadow: none !important;
+  transition: none !important;
+}
+
+/* ── 设置面板 textarea：保持 Obsidian 默认表单底色，仅锁状态切换 ── */
+.fleur-setting-block textarea,
+.fleur-setting-block textarea:hover,
+.fleur-setting-block textarea:active {
+  background-color: var(--background-modifier-form-field) !important;
+  border-color: var(--background-modifier-border) !important;
+  box-shadow: none !important;
+  transition: none !important;
+  -webkit-text-fill-color: var(--text-normal);
+  caret-color: var(--text-normal);
+}
+.fleur-setting-block textarea:focus {
+  background-color: var(--background-modifier-form-field) !important;
+  border-color: var(--background-modifier-border-focus) !important;
 }

@@ -322,12 +322,25 @@ export class AIChatPanel {
         return btn;
       };
 
+      const addWriteAnnotationBtn = (getContent: () => string) => {
+        const btn = makeBtn('写入批注', async () => {
+          const ok = await this.plugin.patcher.writeAIAnnotation(this.selectedText, getContent());
+          if (ok) {
+            btn.textContent = '已写入';
+            setTimeout(() => { btn.textContent = '写入批注'; }, 1500);
+          }
+        });
+        return btn;
+      };
+
       makeBtn('复制', () => {
         navigator.clipboard.writeText(content);
         const btn = actions.querySelector('button')!;
         btn.textContent = '已复制';
         setTimeout(() => { btn.textContent = '复制'; }, 1500);
       });
+
+      addWriteAnnotationBtn(() => content);
 
       makeBtn('记入笔记', () => this.saveToNote(content));
 
@@ -360,12 +373,25 @@ export class AIChatPanel {
         return btn;
       };
 
+      const addWriteAnnotationBtn = (getContent: () => string) => {
+        const btn = makeBtn('写入批注', async () => {
+          const ok = await this.plugin.patcher.writeAIAnnotation(this.selectedText, getContent());
+          if (ok) {
+            btn.textContent = '已写入';
+            setTimeout(() => { btn.textContent = '写入批注'; }, 1500);
+          }
+        });
+        return btn;
+      };
+
       makeBtn('复制', () => {
         navigator.clipboard.writeText(this.rawMarkdown);
         const btn = actions.querySelector('button')!;
         btn.textContent = '已复制';
         setTimeout(() => { btn.textContent = '复制'; }, 1500);
       });
+
+      addWriteAnnotationBtn(() => this.rawMarkdown);
 
       makeBtn('记入笔记', () => this.saveToNote(this.rawMarkdown));
 

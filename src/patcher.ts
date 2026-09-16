@@ -7,7 +7,7 @@ import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
 import { wrapSelection, appendToSelection, findAndReplace, getReadingModeSelection, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
 
-/** 自定义批注输入弹窗 */
+/** 自定义批注输入弹窗：支持拖拽（标题栏）、右下角缩放、高度自适应内容 */
 class CommentModal extends Modal {
   private textarea: HTMLTextAreaElement;
   private onConfirm: (text: string) => void;
@@ -29,9 +29,10 @@ class CommentModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    // 标题
+    // 标题（同时作为拖拽手柄）
     const titleEl = contentEl.createEl('h3', { text: '添加批注' });
     titleEl.addClass('fleur-modal-title');
+    this.makeDraggable(titleEl);
 
     // 选中文本预览
     const label = contentEl.createDiv({ text: '选中文本' });
@@ -72,7 +73,76 @@ class CommentModal extends Modal {
       }
     });
 
+    // 右下角缩放手柄
+    this.addResizeHandle();
+
     setTimeout(() => this.textarea.focus(), 50);
+  }
+
+  /** 标题栏拖拽：首次拖动时脱离 flex 居中改为绝对定位 */
+  private makeDraggable(handle: HTMLElement) {
+    handle.addClass('fleur-modal-drag-handle');
+
+    handle.addEventListener('mousedown', (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest('button')) return;
+      e.preventDefault();
+
+      const rect = this.modalEl.getBoundingClientRect();
+      // 切换为绝对定位，固定当前位置
+      this.modalEl.setCssStyles({
+        position: 'absolute',
+        margin: '0',
+        left: `${rect.left}px`,
+        top: `${rect.top}px`
+      });
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const originLeft = rect.left;
+      const originTop = rect.top;
+      document.body.addClass('fleur-modal-dragging');
+
+      const onMove = (ev: MouseEvent) => {
+        const w = this.modalEl.offsetWidth;
+        const h = this.modalEl.offsetHeight;
+        const x = Math.min(Math.max(originLeft + (ev.clientX - startX), -w + 80), window.innerWidth - 80);
+        const y = Math.min(Math.max(originTop + (ev.clientY - startY), 0), window.innerHeight - 40);
+        this.modalEl.setCssStyles({ left: `${x}px`, top: `${y}px` });
+      };
+      const onUp = () => {
+        document.body.removeClass('fleur-modal-dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  /** 右下角缩放手柄（仅调宽度，高度固定） */
+  private addResizeHandle() {
+    const handle = this.modalEl.createDiv();
+    handle.addClass('fleur-modal-resize-handle');
+
+    handle.addEventListener('mousedown', (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = this.modalEl.getBoundingClientRect();
+      const startX = e.clientX;
+      const startW = rect.width;
+
+      const onMove = (ev: MouseEvent) => {
+        const w = Math.min(Math.max(380, startW + (ev.clientX - startX)), window.innerWidth - 40);
+        this.modalEl.setCssStyles({ width: `${w}px` });
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
   }
 
   onClose() {
@@ -836,6 +906,110 @@ export class MarkdownPatcher {
   private askAITranslate(text: string, anchorX?: number, anchorY?: number) {
     const panel = new AIChatPanel(this.plugin, text, 'translate');
     panel.open(anchorX, anchorY);
+  }
+
+  /**
+   * 将 AI 回复写入当前选中原文对应的批注（AI 面板「写入批注」按钮）：
+   * - 批注内容剥离 Markdown，按纯文本写入（与批注展示约定一致）
+   * - 选中原文已有批注 → 更新批注内容（文件内旧 %%…%% 标记同步替换）
+   * - 没有对应批注 → 走现有「添加批注」逻辑新建（==文本==%% 批注 %%）
+   * @returns 是否写入成功
+   */
+  async writeAIAnnotation(selectedText: string, aiContent: string): Promise<boolean> {
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice('请先打开一个笔记');
+      return false;
+    }
+
+    const comment = stripMarkdown(aiContent || '').trim();
+    if (!comment) {
+      new Notice('AI 内容为空，无法写入批注');
+      return false;
+    }
+
+    const norm = (s: string) => s.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF]+/g, '').toLowerCase();
+    const target = norm(selectedText);
+
+    const data = await this.plugin.store.load(file.path);
+    const ann = data.annotations.find(a => {
+      const t = norm(a.text || '');
+      return t && (t === target || t.includes(target) || target.includes(t));
+    });
+
+    if (ann) {
+      // 更新现有批注：文件内的旧 %%…%% 标记替换为新的
+      const content = await this.plugin.app.vault.read(file);
+      let updated = content;
+
+      if (ann.comment) {
+        const markers = [`%% ${ann.comment} %%`, `%%${ann.comment}%%`];
+        for (const m of markers) {
+          if (updated.includes(m)) {
+            updated = updated.replace(m, `%% ${comment} %%`);
+            break;
+          }
+        }
+      }
+
+      // 旧标记不在文件中（或原本无批注）→ 在原文标记后追加新批注标记
+      if (updated === content) {
+        const appended = this.appendCommentMarker(content, ann.text, ann.type, ann.color, comment);
+        if (appended === null) {
+          new Notice('未能在原文中定位到该标注，仅写入侧边栏');
+        }
+        updated = appended ?? content;
+      }
+
+      if (updated !== content) {
+        await this.plugin.app.vault.modify(file, updated);
+      }
+
+      ann.comment = comment;
+      await this.plugin.store.updateAnnotation(file.path, ann);
+
+      this.plugin.refreshSidebar();
+      new Notice('已写入批注');
+      setTimeout(() => this.forceInject(), 500);
+      return true;
+    }
+
+    // 没有对应批注 → 新建（与「添加批注」一致：高亮 + 内联批注）
+    await this.saveComment(selectedText, comment, null, true);
+    return true;
+  }
+
+  /** 在原文（或其包裹标记）后追加 %% 批注 %% 标记，找不到原文返回 null */
+  private appendCommentMarker(
+    content: string,
+    text: string,
+    type: string,
+    color: string | undefined,
+    comment: string
+  ): string | null {
+    const marker = `%% ${comment} %%`;
+
+    // 候选插入点：高亮包裹后 → 划线包裹后 → 裸文本后
+    const candidates: { anchor: string; offset: number }[] = [
+      { anchor: `==${text}==`, offset: `==${text}==`.length },
+    ];
+
+    const underlineRegex = new RegExp(`<u[^>]*>${escapeRegex(text)}</u>`);
+    const uMatch = content.match(underlineRegex);
+    if (uMatch && uMatch.index !== undefined) {
+      candidates.push({ anchor: uMatch[0], offset: uMatch[0].length });
+    }
+
+    candidates.push({ anchor: text, offset: text.length });
+
+    for (const c of candidates) {
+      const idx = content.indexOf(c.anchor);
+      if (idx !== -1) {
+        const insertPos = idx + c.offset;
+        return content.substring(0, insertPos) + marker + content.substring(insertPos);
+      }
+    }
+    return null;
   }
 
   // ════════════════════════════════════════════

@@ -432,16 +432,11 @@ export class FleurSettingTab extends PluginSettingTab {
 
     const folderSet = new Set<string>();
     folderSet.add('FleurAnnotation');
-    this.app.vault.getAllLoadedFiles().forEach(file => {
-      if (file.path.includes('/')) {
-        const parts = file.path.split('/');
-        let current = '';
-        for (let i = 0; i < parts.length - 1; i++) {
-          current = current ? `${current}/${parts[i]}` : parts[i];
-          folderSet.add(current);
-        }
-      }
-    });
+    // 直接枚举 vault 里的文件夹（含空文件夹）。不要用 getAllLoadedFiles 反推祖先目录，
+    // 那样空文件夹永远不会出现在下拉里。getAllFolders() @since 1.6.6，默认不含根目录。
+    for (const folder of this.app.vault.getAllFolders()) {
+      folderSet.add(folder.path);
+    }
     const folders = Array.from(folderSet).sort();
 
     new Setting(containerEl)

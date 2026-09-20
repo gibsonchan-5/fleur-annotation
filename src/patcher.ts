@@ -5,7 +5,7 @@ import type { Editor } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
-import { wrapSelection, appendToSelection, findAndReplace, getReadingModeSelection, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
+import { wrapSelection, appendToSelection, findAndReplace, getBodyStartOffset, getReadingModeSelection, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
 
 /** 自定义批注输入弹窗：支持拖拽（标题栏）、右下角缩放、高度自适应内容 */
 class CommentModal extends Modal {
@@ -583,7 +583,9 @@ export class MarkdownPatcher {
       if (from) return from.line;
     }
     if (content) {
-      const idx = content.indexOf(selection);
+      // 跳过 frontmatter：description 复述导语时避免行号定位到 YAML
+      const bodyStart = getBodyStartOffset(content);
+      const idx = content.indexOf(selection, bodyStart);
       if (idx >= 0) {
         return content.slice(0, idx).split('\n').length - 1;
       }
@@ -605,8 +607,9 @@ export class MarkdownPatcher {
 
 
 
-      // 防重复包裹：文本若已被 == 包裹则跳过文件修改
-      const alreadyWrapped = new RegExp(`==\\s*${escapeRegex(selection.trim())}\\s*==`).test(content);
+      // 防重复包裹：文本若已被 == 包裹则跳过文件修改（仅检查正文，忽略 frontmatter 中误写的历史标记）
+      const bodyStart = getBodyStartOffset(content);
+      const alreadyWrapped = new RegExp(`==\\s*${escapeRegex(selection.trim())}\\s*==`).test(content.slice(bodyStart));
       if (alreadyWrapped) {
 
         await this.plugin.store.addAnnotation(file.path, {
@@ -990,12 +993,14 @@ export class MarkdownPatcher {
     const marker = `%% ${comment} %%`;
 
     // 候选插入点：高亮包裹后 → 划线包裹后 → 裸文本后
+    // 统一从正文（跳过 frontmatter）开始查找，避免批注标记写进 YAML
+    const searchFrom = getBodyStartOffset(content);
     const candidates: { anchor: string; offset: number }[] = [
       { anchor: `==${text}==`, offset: `==${text}==`.length },
     ];
 
     const underlineRegex = new RegExp(`<u[^>]*>${escapeRegex(text)}</u>`);
-    const uMatch = content.match(underlineRegex);
+    const uMatch = content.slice(searchFrom).match(underlineRegex);
     if (uMatch && uMatch.index !== undefined) {
       candidates.push({ anchor: uMatch[0], offset: uMatch[0].length });
     }
@@ -1003,7 +1008,7 @@ export class MarkdownPatcher {
     candidates.push({ anchor: text, offset: text.length });
 
     for (const c of candidates) {
-      const idx = content.indexOf(c.anchor);
+      const idx = content.indexOf(c.anchor, searchFrom);
       if (idx !== -1) {
         const insertPos = idx + c.offset;
         return content.substring(0, insertPos) + marker + content.substring(insertPos);

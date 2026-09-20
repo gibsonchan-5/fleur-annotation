@@ -56,6 +56,20 @@ function normalizeText(s: string): string {
 }
 
 /**
+ * 获取正文起始偏移量（跳过文件头 YAML frontmatter）
+ * 剪藏类笔记的 description 常复述导语，若全文首个匹配落在 frontmatter，
+ * == / <u> 等标记会被错误写入 YAML，导致正文无渲染、侧边栏却有记录
+ */
+export function getBodyStartOffset(content: string): number {
+  const opening = /^---[ \t]*\r?\n/.exec(content);
+  if (!opening) return 0;
+  const rest = content.slice(opening[0].length);
+  const closing = /^---[ \t]*(?:\r?\n|$)/m.exec(rest);
+  if (!closing) return 0;
+  return opening[0].length + closing.index + closing[0].length;
+}
+
+/**
  * 从文件内容中查找并替换文本（宽松空白匹配）
  * @param wrapFn 包裹函数，接收源文件中匹配到的原始文本（含 ** 等 Markdown 标记），返回替换后的字符串
  *              注意：Obsidian 内联语法（==、<u>、%%）不能跨段落，wrapFn 需要自行处理
@@ -65,6 +79,16 @@ export function findAndReplace(
   searchText: string,
   wrapFn: (origMatched: string) => string
 ): string | null {
+
+  // 0. 优先在正文（跳过 YAML frontmatter）中匹配，避免标记被写入 frontmatter；
+  //    正文未命中时回退到下面的全文匹配流程（保持旧行为）
+  const bodyStart = getBodyStartOffset(content);
+  if (bodyStart > 0) {
+    const bodyResult = findAndReplace(content.slice(bodyStart), searchText, wrapFn);
+    if (bodyResult !== null) {
+      return content.slice(0, bodyStart) + bodyResult;
+    }
+  }
 
   // 1. 先尝试精确匹配（原始文本）
   const exactIndex = content.indexOf(searchText);

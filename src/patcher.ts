@@ -5,7 +5,7 @@ import type { Editor } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
-import { wrapSelection, appendToSelection, findAndReplace, getBodyStartOffset, getReadingModeSelection, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
+import { wrapSelection, appendToSelection, findAndReplace, findNthIndex, wrapSegmented, getBodyStartOffset, getReadingModeSelection, getReadingModeOccurrence, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
 
 /** 自定义批注输入弹窗：支持拖拽（标题栏）、右下角缩放、高度自适应内容 */
 class CommentModal extends Modal {
@@ -387,6 +387,9 @@ export class MarkdownPatcher {
     e.preventDefault();
     e.stopPropagation(); // 阻止事件继续传播
 
+    // 右键时选区仍在 DOM 上，立即推断是同文本的第几处出现（供高亮/划线/批注定位到正确的那一处）
+    const occurrence = getReadingModeOccurrence(selection);
+
     const menu = new Menu();
 
     menu.addItem((item) => {
@@ -402,20 +405,20 @@ export class MarkdownPatcher {
       item.setIcon('highlighter');
       item.onClick(() => {
 
-        this.addHighlight(selection, null, true);
+        this.addHighlight(selection, null, true, occurrence);
       });
     });
 
     menu.addItem((item) => {
       item.setTitle('添加划线');
       item.setIcon('underline');
-      item.onClick(() => this.addUnderline(selection, null, true));
+      item.onClick(() => this.addUnderline(selection, null, true, occurrence));
     });
 
     menu.addItem((item) => {
       item.setTitle('添加批注');
       item.setIcon('message-square');
-      item.onClick(() => this.showCommentModal(selection, null, true));
+      item.onClick(() => this.showCommentModal(selection, null, true, occurrence));
     });
 
     menu.addSeparator();
@@ -576,8 +579,8 @@ export class MarkdownPatcher {
   //  侵入式编辑
   // ════════════════════════════════════════════
 
-  /** 计算选中文本在文档中的起始行号（用于内文排序） */
-  private computeLine(content: string | null, selection: string, editor: Editor | null): number | undefined {
+  /** 计算选中文本在文档中的起始行号（用于内文排序）；occurrence 为同文本第几处出现（0-based） */
+  private computeLine(content: string | null, selection: string, editor: Editor | null, occurrence = 0): number | undefined {
     if (editor) {
       const from = editor.getCursor('from');
       if (from) return from.line;
@@ -585,7 +588,7 @@ export class MarkdownPatcher {
     if (content) {
       // 跳过 frontmatter：description 复述导语时避免行号定位到 YAML
       const bodyStart = getBodyStartOffset(content);
-      const idx = content.indexOf(selection, bodyStart);
+      const idx = findNthIndex(content, selection, occurrence + 1, bodyStart);
       if (idx >= 0) {
         return content.slice(0, idx).split('\n').length - 1;
       }
@@ -593,7 +596,7 @@ export class MarkdownPatcher {
     return undefined;
   }
 
-  private async addHighlight(selection: string, editor: Editor | null, inReadingMode: boolean) {
+  private async addHighlight(selection: string, editor: Editor | null, inReadingMode: boolean, occurrence = 0) {
 
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) {
@@ -607,9 +610,11 @@ export class MarkdownPatcher {
 
 
 
-      // 防重复包裹：文本若已被 == 包裹则跳过文件修改（仅检查正文，忽略 frontmatter 中误写的历史标记）
+      // 防重复包裹：用户所选的那一处出现若已被 == 包裹则跳过文件修改
+      // （仅检查正文；按已包裹数量与 occurrence 比较，避免选中后一处时被前处的包裹误判）
       const bodyStart = getBodyStartOffset(content);
-      const alreadyWrapped = new RegExp(`==\\s*${escapeRegex(selection.trim())}\\s*==`).test(content.slice(bodyStart));
+      const wrappedMatches = content.slice(bodyStart).match(new RegExp(`==\\s*${escapeRegex(selection.trim())}\\s*==`, 'g'));
+      const alreadyWrapped = !!wrappedMatches && wrappedMatches.length > occurrence;
       if (alreadyWrapped) {
 
         await this.plugin.store.addAnnotation(file.path, {
@@ -617,7 +622,8 @@ export class MarkdownPatcher {
           type: 'highlight',
           text: selection,
           color: '#FFC107',
-          line: this.computeLine(content, selection, editor),
+          line: this.computeLine(content, selection, editor, occurrence),
+          occurrence,
           createdAt: Date.now(),
         });
         this.plugin.refreshSidebar();
@@ -625,18 +631,12 @@ export class MarkdownPatcher {
         return;
       }
 
-      // 跨段落选区：每段分别包裹 ==，因为 Obsidian ==高亮== 不能跨段落
-      const wrapHighlight = (origMatched: string) => {
-        if (origMatched.includes('\n\n')) {
-          return origMatched.split(/\n\n+/).map(seg => `==${seg}==`).join('\n\n');
-        } else if (origMatched.includes('\n')) {
-          return origMatched.split(/\n+/).map(seg => `==${seg}==`).join('\n');
-        }
-        return `==${origMatched}==`;
-      };
-      const updated = findAndReplace(content, selection, wrapHighlight);
+      // 跨段落选区：每段分别包裹 ==，因为 Obsidian ==高亮== 不能跨段落；
+      // 跨 ** / ~~ 边界的选区把未配对标记留在 == 之外，避免畸形嵌套无法渲染
+      const wrapHighlight = (origMatched: string) => wrapSegmented(origMatched, seg => `==${seg}==`);
+      const updated = findAndReplace(content, selection, wrapHighlight, occurrence);
 
-      
+
       if (updated) {
 
         await this.plugin.app.vault.modify(file, updated);
@@ -662,7 +662,8 @@ export class MarkdownPatcher {
       type: 'highlight',
       text: selection,
       color: '#FFC107',
-      line: this.computeLine(content, selection, editor),
+      line: this.computeLine(content, selection, editor, occurrence),
+      occurrence,
       createdAt: Date.now(),
     });
 
@@ -673,7 +674,7 @@ export class MarkdownPatcher {
     setTimeout(() => this.forceInject(), 500);
   }
 
-  private async addUnderline(selection: string, editor: Editor | null, inReadingMode: boolean) {
+  private async addUnderline(selection: string, editor: Editor | null, inReadingMode: boolean, occurrence = 0) {
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) return;
 
@@ -684,16 +685,9 @@ export class MarkdownPatcher {
     let content: string | null = null;
     if (inReadingMode) {
       content = await this.plugin.app.vault.read(file);
-      // <u> 也不能跨段落，每段分别包裹
-      const wrapUnderline = (origMatched: string) => {
-        if (origMatched.includes('\n\n')) {
-          return origMatched.split(/\n\n+/).map(seg => `${wrapPrefix}${seg}${wrapSuffix}`).join('\n\n');
-        } else if (origMatched.includes('\n')) {
-          return origMatched.split(/\n+/).map(seg => `${wrapPrefix}${seg}${wrapSuffix}`).join('\n');
-        }
-        return `${wrapPrefix}${origMatched}${wrapSuffix}`;
-      };
-      const updated = findAndReplace(content, selection, wrapUnderline);
+      // <u> 也不能跨段落，每段分别包裹；跨 ** / ~~ 边界时未配对标记留在包裹外
+      const wrapUnderline = (origMatched: string) => wrapSegmented(origMatched, seg => `${wrapPrefix}${seg}${wrapSuffix}`);
+      const updated = findAndReplace(content, selection, wrapUnderline, occurrence);
       if (updated) {
         await this.plugin.app.vault.modify(file, updated);
         // 刷新视图，保持在阅读模式
@@ -713,7 +707,8 @@ export class MarkdownPatcher {
       type: 'underline',
       text: selection,
       color: underlineColor,
-      line: this.computeLine(content, selection, editor),
+      line: this.computeLine(content, selection, editor, occurrence),
+      occurrence,
       createdAt: Date.now(),
     });
 
@@ -722,32 +717,23 @@ export class MarkdownPatcher {
   }
 
   /** 显示批注输入弹窗 */
-  private showCommentModal(selection: string, editor: Editor | null, inReadingMode: boolean) {
+  private showCommentModal(selection: string, editor: Editor | null, inReadingMode: boolean, occurrence = 0) {
     const modal = new CommentModal(this.plugin, selection, async (comment) => {
-      await this.saveComment(selection, comment, editor, inReadingMode);
+      await this.saveComment(selection, comment, editor, inReadingMode, occurrence);
     });
     modal.open();
   }
 
-  private async saveComment(selection: string, comment: string, editor: Editor | null, inReadingMode: boolean) {
+  private async saveComment(selection: string, comment: string, editor: Editor | null, inReadingMode: boolean, occurrence = 0) {
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) return;
 
     let content: string | null = null;
     if (inReadingMode) {
       content = await this.plugin.app.vault.read(file);
-      // 批注 = 高亮 + 内联注释：==文本==%% 批注 %%
-      // == 不能跨段落，每段分别包裹
-      const wrapComment = (origMatched: string) => {
-        const segments = origMatched.includes('\n\n')
-          ? origMatched.split(/\n\n+/)
-          : origMatched.includes('\n')
-            ? origMatched.split(/\n+/)
-            : [origMatched];
-        const sep = origMatched.includes('\n\n') ? '\n\n' : origMatched.includes('\n') ? '\n' : '';
-        return segments.map(seg => `==${seg}==%% ${comment} %%`).join(sep);
-      };
-      const updated = findAndReplace(content, selection, wrapComment);
+      // 批注 = 高亮 + 内联注释：==文本==%% 批注 %%；跨段落拆分，跨 ** / ~~ 边界时未配对标记留在包裹外
+      const wrapComment = (origMatched: string) => wrapSegmented(origMatched, seg => `==${seg}==%% ${comment} %%`);
+      const updated = findAndReplace(content, selection, wrapComment, occurrence);
       if (updated) {
         await this.plugin.app.vault.modify(file, updated);
         // 刷新视图，保持在阅读模式
@@ -769,7 +755,8 @@ export class MarkdownPatcher {
       text: selection,
       color: '#FFC107',
       comment: comment,
-      line: this.computeLine(content, selection, editor),
+      line: this.computeLine(content, selection, editor, occurrence),
+      occurrence,
       createdAt: Date.now(),
     });
 
@@ -957,7 +944,7 @@ export class MarkdownPatcher {
 
       // 旧标记不在文件中（或原本无批注）→ 在原文标记后追加新批注标记
       if (updated === content) {
-        const appended = this.appendCommentMarker(content, ann.text, ann.type, ann.color, comment);
+        const appended = this.appendCommentMarker(content, ann.text, ann.type, ann.color, comment, ann.occurrence ?? 0);
         if (appended === null) {
           new Notice('未能在原文中定位到该标注，仅写入侧边栏');
         }
@@ -982,13 +969,14 @@ export class MarkdownPatcher {
     return true;
   }
 
-  /** 在原文（或其包裹标记）后追加 %% 批注 %% 标记，找不到原文返回 null */
+  /** 在原文（或其包裹标记）后追加 %% 批注 %% 标记，找不到原文返回 null；occurrence 定位同文本的第几处出现 */
   private appendCommentMarker(
     content: string,
     text: string,
     type: string,
     color: string | undefined,
-    comment: string
+    comment: string,
+    occurrence = 0
   ): string | null {
     const marker = `%% ${comment} %%`;
 
@@ -1008,7 +996,7 @@ export class MarkdownPatcher {
     candidates.push({ anchor: text, offset: text.length });
 
     for (const c of candidates) {
-      const idx = content.indexOf(c.anchor, searchFrom);
+      const idx = findNthIndex(content, c.anchor, occurrence + 1, searchFrom);
       if (idx !== -1) {
         const insertPos = idx + c.offset;
         return content.substring(0, insertPos) + marker + content.substring(insertPos);

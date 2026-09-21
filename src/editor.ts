@@ -70,28 +70,91 @@ export function getBodyStartOffset(content: string): number {
 }
 
 /**
+ * 查找第 nth 个（1-based）匹配的位置，找不到返回 -1
+ */
+export function findNthIndex(haystack: string, needle: string, nth = 1, from = 0): number {
+  if (nth < 1) nth = 1;
+  let idx = haystack.indexOf(needle, from);
+  let count = 1;
+  while (idx !== -1 && count < nth) {
+    idx = haystack.indexOf(needle, idx + 1);
+    count++;
+  }
+  return idx;
+}
+
+/**
+ * 跨行内格式标记（**、~~）边界的选区包裹。
+ * 选区起点/终点落在加粗等标记的一侧时，直接外层包裹会产生 ==…**。== 这类畸形嵌套
+ * （== 跨越加粗边界，Obsidian 无法解析，原样显示）。这里把未配对的标记留在包裹之外，
+ * 只包裹标记内的文本段，例如：
+ *   一些…资金**。  →  ==一些…资金==**。
+ * 配合外侧已有的 ** 开标记，最终渲染为加粗内高亮：**==…==**。
+ */
+export function wrapSegmented(origMatched: string, wrapOne: (seg: string) => string): string {
+  // == / <u> 不能跨段落/行，先按行拆分
+  const sep = origMatched.includes('\n\n') ? '\n\n' : origMatched.includes('\n') ? '\n' : '';
+  const parts = sep ? origMatched.split(/\n\n+|\n+/) : [origMatched];
+  return parts.map(p => wrapInlineBalanced(p, wrapOne)).join(sep);
+}
+
+function wrapInlineBalanced(seg: string, wrapOne: (seg: string) => string): string {
+  for (const marker of ['**', '~~']) {
+    const count = seg.split(marker).length - 1;
+    if (count % 2 === 1) {
+      // 奇数个标记：选区跨越了它的边界。判断第一个标记是收尾还是开头：
+      // 标记前是正文字符（非标点/空白）→ 收尾标记（选区从标记内开始）；否则是开头标记
+      const firstIdx = seg.indexOf(marker);
+      const beforeCh = firstIdx > 0 ? seg[firstIdx - 1] : '';
+      let inside = /[\u4e00-\u9fff\u3040-\u30ff\w]/.test(beforeCh);
+      let pos = 0;
+      let out = '';
+      const emit = (text: string, isInside: boolean) => {
+        if (!text) return;
+        // 重高亮场景：该段已是完整 ==包裹==，不二次包裹
+        if (isInside && text.startsWith('==') && text.endsWith('==')) { out += text; return; }
+        out += isInside ? wrapOne(text) : text;
+      };
+      while (pos <= seg.length) {
+        const next = seg.indexOf(marker, pos);
+        if (next === -1) { emit(seg.slice(pos), inside); break; }
+        emit(seg.slice(pos, next), inside);
+        out += marker; // 标记本身留在包裹外
+        pos = next + marker.length;
+        inside = !inside;
+      }
+      return out;
+    }
+  }
+  return wrapOne(seg);
+}
+
+/**
  * 从文件内容中查找并替换文本（宽松空白匹配）
  * @param wrapFn 包裹函数，接收源文件中匹配到的原始文本（含 ** 等 Markdown 标记），返回替换后的字符串
  *              注意：Obsidian 内联语法（==、<u>、%%）不能跨段落，wrapFn 需要自行处理
+ * @param occurrence 0-based：同一文本多次出现时，包裹第几处（阅读模式下由选区在 DOM 中的位置推断）。
+ *              缺省 0 = 首次出现，与旧行为一致
  */
 export function findAndReplace(
   content: string,
   searchText: string,
-  wrapFn: (origMatched: string) => string
+  wrapFn: (origMatched: string) => string,
+  occurrence = 0
 ): string | null {
 
   // 0. 优先在正文（跳过 YAML frontmatter）中匹配，避免标记被写入 frontmatter；
   //    正文未命中时回退到下面的全文匹配流程（保持旧行为）
   const bodyStart = getBodyStartOffset(content);
   if (bodyStart > 0) {
-    const bodyResult = findAndReplace(content.slice(bodyStart), searchText, wrapFn);
+    const bodyResult = findAndReplace(content.slice(bodyStart), searchText, wrapFn, occurrence);
     if (bodyResult !== null) {
       return content.slice(0, bodyStart) + bodyResult;
     }
   }
 
   // 1. 先尝试精确匹配（原始文本）
-  const exactIndex = content.indexOf(searchText);
+  const exactIndex = findNthIndex(content, searchText, occurrence + 1);
   if (exactIndex !== -1) {
     return content.substring(0, exactIndex) + wrapFn(searchText) + content.substring(exactIndex + searchText.length);
   }
@@ -100,14 +163,14 @@ export function findAndReplace(
   const cleanedSearch = normalizeText(searchText);
   if (cleanedSearch.length === 0) return null;
 
-  const cleanedIndex = content.indexOf(cleanedSearch);
+  const cleanedIndex = findNthIndex(content, cleanedSearch, occurrence + 1);
   if (cleanedIndex !== -1) {
     return content.substring(0, cleanedIndex) + wrapFn(cleanedSearch) + content.substring(cleanedIndex + cleanedSearch.length);
   }
 
   // 3. 在清理后的源文件中查找（建立精确的原始位置映射）
   const cleanedContent = normalizeText(content);
-  const cleanedContentIndex = cleanedContent.indexOf(cleanedSearch);
+  const cleanedContentIndex = findNthIndex(cleanedContent, cleanedSearch, occurrence + 1);
   if (cleanedContentIndex !== -1) {
     const origToClean: Map<number, number> = new Map();
     let cleanPos = 0;
@@ -151,10 +214,15 @@ export function findAndReplace(
   const words = cleanedSearch.split(/\s+/).filter(w => w.length > 0);
   if (words.length > 1) {
     const pattern = words.map(w => escapeRegex(w)).join('\\s+');
-    const regex = new RegExp(pattern);
-    const match = content.match(regex);
-    if (match) {
-      return content.substring(0, match.index!) + wrapFn(match[0]) + content.substring(match.index! + match[0].length);
+    const regex = new RegExp(pattern, 'g');
+    let match: RegExpExecArray | null;
+    let seen = 0;
+    while ((match = regex.exec(content)) !== null) {
+      if (seen === occurrence) {
+        return content.substring(0, match.index) + wrapFn(match[0]) + content.substring(match.index + match[0].length);
+      }
+      seen++;
+      if (match[0].length === 0) regex.lastIndex++; // 防空匹配死循环
     }
   }
 
@@ -164,7 +232,7 @@ export function findAndReplace(
   const bareContent = stripAllWhitespace(normalizeText(content));
   if (bareSearch.length === 0) return null;
 
-  const bareIndex = bareContent.indexOf(bareSearch);
+  const bareIndex = findNthIndex(bareContent, bareSearch, occurrence + 1);
   if (bareIndex !== -1) {
     const bareToOrig: number[] = [];
     for (let i = 0; i < content.length; i++) {
@@ -190,7 +258,7 @@ export function findAndReplace(
   if (markdownStripped) {
     const bareFromStripped = stripAllWhitespace(markdownStripped.text);
     if (bareSearch.length > 0) {
-      const bareStrippedIndex = bareFromStripped.indexOf(bareSearch);
+      const bareStrippedIndex = findNthIndex(bareFromStripped, bareSearch, occurrence + 1);
       if (bareStrippedIndex !== -1) {
         const strippedStart = markdownStripped.bareToStripped[bareStrippedIndex];
         const strippedEndIdx = bareStrippedIndex + bareSearch.length - 1;
@@ -345,9 +413,64 @@ export function appendToSelection(editor: Editor, suffix: string): boolean {
 export function getReadingModeSelection(): string | null {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) return null;
-  
+
   const text = selection.toString().trim();
   return text || null;
+}
+
+/**
+ * 推断阅读模式选区中的文本是其在预览正文中的第几处出现（0-based，首个返回 0）。
+ * 原理：用 Range 计算选区起点在预览容器文本流中的偏移，统计该偏移之前（含起点处）
+ * 目标文本已完整出现的次数。同一段文本多次出现时，用它把 == 包裹写到正确的那一处。
+ * 探测失败一律返回 0（退回旧行为）。
+ */
+export function getReadingModeOccurrence(selectionText: string): number {
+  try {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return 0;
+    const range = sel.getRangeAt(0);
+
+    const startNode = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer as HTMLElement
+      : range.startContainer.parentElement;
+    const root = startNode?.closest('.markdown-preview-view, .markdown-rendered');
+    if (!root) return 0;
+
+    // 选区起点之前，预览容器内的文本长度
+    const pre = document.createRange();
+    pre.selectNodeContents(root);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const pos = pre.toString().length;
+
+    const probe = selectionText.trim();
+    if (!probe) return 0;
+    const text = root.textContent || '';
+
+    // 精确统计：pos 及之前完整出现的次数（第 N 处出现 → 返回 N-1）
+    let count = 0;
+    let idx = text.indexOf(probe);
+    while (idx !== -1 && idx <= pos) {
+      count++;
+      idx = text.indexOf(probe, idx + 1);
+    }
+    if (count > 0) return count - 1;
+
+    // 回退：渲染文本与选区文本可能有空白差异，归一化后计数
+    // （归一化前缀 = 选区起点之前的文本，其中完整出现过的次数即所选出现的 0-based 序号）
+    const norm = (s: string) => s.replace(/\s+/g, '');
+    const nProbe = norm(probe);
+    if (nProbe.length < 2) return 0;
+    const nText = norm(text.slice(0, pos));
+    let nCount = 0;
+    let sIdx = nText.indexOf(nProbe);
+    while (sIdx !== -1) {
+      nCount++;
+      sIdx = nText.indexOf(nProbe, sIdx + 1);
+    }
+    return nCount;
+  } catch {
+    return 0;
+  }
 }
 
 /**

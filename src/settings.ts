@@ -513,6 +513,7 @@ export class FleurSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.annotationSort = value as 'line' | 'time';
           await this.plugin.saveSettings();
+          this.plugin.refreshSidebar();
         }));
   }
 

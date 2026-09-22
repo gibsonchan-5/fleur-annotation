@@ -1,11 +1,86 @@
 // Markdown 编辑器拦截 + 右键菜单 + 侵入式编辑
 // 支持 Live Preview 模式和 Reading Mode
 import { Menu, MarkdownView, Notice, Modal, TFile } from 'obsidian';
-import type { Editor } from 'obsidian';
+import type { Editor, MarkdownPreviewView } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
 import { wrapSelection, appendToSelection, findAndReplace, findNthIndex, wrapSegmented, getBodyStartOffset, getReadingModeSelection, getReadingModeOccurrence, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
+
+// ═══════════════════════════════════════════
+//  定位辅助：文本归一化 / 多级匹配 / 滚动容器
+// ═══════════════════════════════════════════
+
+/** 归一化用于匹配的文本：去空白与零宽字符、统一引号与全角标点、小写 */
+function normalizeForMatch(s: string): string {
+  return (s || '')
+    .replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF\u2028\u2029\u0085]+/g, '')
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u3003]/g, '"')
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/\uFF08/g, '(')
+    .replace(/\uFF09/g, ')')
+    .replace(/\uFF1A/g, ':')
+    .replace(/\uFF1B/g, ';')
+    .replace(/\uFF0C/g, ',')
+    .replace(/[\uFF0E\u3002]/g, '.')
+    .replace(/\uFF01/g, '!')
+    .replace(/\uFF1F/g, '?')
+    .replace(/\u3010/g, '[')
+    .replace(/\u3011/g, ']')
+    .replace(/[\u2014\u2015]/g, '-')
+    .toLowerCase();
+}
+
+/**
+ * 多级匹配：返回 4=精确 / 3=包含 / 2=前缀 / 1=相似 / 0=不匹配。
+ * 用于判断 DOM 渲染文本与批注记录文本是否指向同一处（容忍引号变形、截断、气泡文本混入）。
+ */
+function matchLevel(rendered: string, target: string): number {
+  if (!rendered || !target) return 0;
+  // 过短的渲染文本（如单个标点）不足以判定，只认完全相等，避免误命中
+  if (rendered.length < 6) return rendered === target ? 4 : 0;
+
+  if (rendered === target) return 4;
+  if (rendered.includes(target) || target.includes(rendered)) return 3;
+
+  // 前缀匹配：首 16 字符互含（应对尾部被截断或追加的情况）
+  const K = 16;
+  const rp = rendered.slice(0, K);
+  const tp = target.slice(0, K);
+  if (rp.length >= 8 && target.includes(rp)) return 2;
+  if (tp.length >= 8 && rendered.includes(tp)) return 2;
+
+  // 相似度：以 10 字符滑窗统计覆盖率
+  const win = 10;
+  if (target.length >= win) {
+    let hitCount = 0;
+    let total = 0;
+    for (let i = 0; i + win <= target.length; i += win) {
+      total++;
+      if (rendered.includes(target.slice(i, i + win))) hitCount++;
+    }
+    if (total > 0 && hitCount / total >= 0.6) return 1;
+  }
+  return 0;
+}
+
+/** 元素是否真正占位可见（隐藏视图里的元素高宽为 0，命中它不会有任何视觉反馈） */
+function isVisible(el: HTMLElement): boolean {
+  return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+}
+
+/** 向上查找最近的可滚动祖先（阅读模式的滚动容器是 .markdown-preview-view） */
+function findScrollParent(el: HTMLElement): HTMLElement | null {
+  let cur: HTMLElement | null = el.parentElement;
+  while (cur) {
+    const overflowY = getComputedStyle(cur).overflowY;
+    if ((overflowY === 'auto' || overflowY === 'scroll') && cur.scrollHeight > cur.clientHeight) {
+      return cur;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}
 
 /** 自定义批注输入弹窗：支持拖拽（标题栏）、右下角缩放、高度自适应内容 */
 class CommentModal extends Modal {
@@ -805,83 +880,456 @@ export class MarkdownPatcher {
   //  侧边栏定位（对齐 FleurPDF：滚动居中 + 闪烁）
   // ═══════════════════════════════════════════
 
-  /** 上一次闪烁清理定时器 */
-  private locateFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 定位指示器（overlay 方框）的 DOM 与清理句柄 */
+  private locateOverlay: HTMLElement | null = null;
+  private locateOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+  private locateScrollTimer: ReturnType<typeof setTimeout> | null = null;
+  private locateScrollHandler: (() => void) | null = null;
+  private lastRevealId = '';
+  private lastRevealAt = 0;
 
   /**
-   * 从侧边栏定位到原文中的标注：
-   * 1) data-fleur-annotation 属性精确匹配（注入过批注气泡的标注）
-   * 2) mark / .cm-highlight / u 渲染文本匹配（阅读模式 + Live Preview）
-   * 3) 编辑模式下按记录的行号 setCursor + scrollIntoView
+   * 从侧边栏定位到原文中的标注。按成本从低到高依次尝试，命中即返回：
+   * 0) data-fleur-annotation 属性精确匹配（注入过批注气泡的标注）
+   * 1) mark / .cm-highlight / u 渲染文本多级匹配（精确 → 包含 → 前缀 → 相似度）
+   * 2) 块级元素兜底（包含目标的最短块）
+   * 3) 阅读模式懒渲染兜底：比例滚动跳转 → 短帧轮询重试
+   * 4) 编辑模式按行号 setCursor + scrollIntoView
    */
   async revealAnnotation(ann: Annotation) {
+    // 去抖：双击会先派发两次 click，连点也常见；同一条批注 400ms 内只定位一次
+    const now = Date.now();
+    if (this.lastRevealId === ann.id && now - this.lastRevealAt < 400) return;
+    this.lastRevealId = ann.id;
+    this.lastRevealAt = now;
+
+    try {
+      await this.revealAnnotationInner(ann);
+    } catch (e) {
+      console.error('[FleurAnnotation] revealAnnotation failed:', e);
+      new Notice('定位时发生异常：' + String(e));
+    }
+  }
+
+  private async revealAnnotationInner(ann: Annotation) {
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) {
       new Notice('未找到原文文件');
       return;
     }
 
-    const norm = (s: string) => s.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF]+/g, '').toLowerCase();
-    const target = norm(ann.text || '');
+    const target = normalizeForMatch(ann.text || '');
 
+    // 搜索根 + 目标视图：按文件路径在所有 markdown leaf 中查找。
+    // 不用 getActiveViewOfType——点击侧边栏后焦点在侧边栏上，活动视图不是笔记视图。
+    // 关键：优先「可见」的视图。剪辑/切换模式后，DOM 里常残留隐藏的源码视图，
+    // 其中的 .cm-highlight 高宽为 0，命中它等于什么都没发生（曾表现为「点了无法定位」）。
+    type Candidate = { view: MarkdownView; el: HTMLElement; visible: boolean; active: boolean };
+    const candidates: Candidate[] = [];
+    const activeLeaf = this.plugin.app.workspace.activeLeaf;
+    for (const leaf of this.plugin.app.workspace.getLeavesOfType('markdown')) {
+      const v = leaf.view as MarkdownView;
+      if (!v?.file || v.file.path !== file.path) continue;
+      const el = (v as unknown as { containerEl?: HTMLElement }).containerEl;
+      if (!el) continue;
+      candidates.push({ view: v, el, visible: isVisible(el), active: leaf === activeLeaf });
+    }
+    candidates.sort((a, b) => Number(b.visible) - Number(a.visible) || Number(b.active) - Number(a.active));
+
+    const visibleCandidates = candidates.filter(c => c.visible);
+    const useCandidates = visibleCandidates.length ? visibleCandidates : candidates;
+    const noteView: MarkdownView | null = useCandidates[0]?.view ?? null;
+    const roots: HTMLElement[] = useCandidates.map(c => c.el);
+    const mode = noteView?.getMode();
+
+    const level = { value: 0 };
     let hit: HTMLElement | null = null;
+    let jumped = false;
 
-    const containers = document.querySelectorAll('.markdown-preview-view, .markdown-source-view');
-    for (const container of Array.from(containers)) {
-      // 1) 已注入 data 属性的（带批注的标注）
-      const byId = container.querySelector(`[data-fleur-annotation="${ann.id}"]`) as HTMLElement | null;
-      if (byId) {
-        hit = byId;
-        break;
-      }
-      if (!target) continue;
-
-      // 2) 渲染后的标注元素文本匹配
-      const marks = container.querySelectorAll('mark, .cm-highlight, u');
-      for (const m of Array.from(marks)) {
-        const t = norm(m.textContent || '');
-        if (t && (t === target || t.includes(target) || target.includes(t))) {
-          hit = m as HTMLElement;
-          break;
+    // 1) Live Preview / 源码模式：编辑器行号定位最可靠（DOM 只渲染视口附近的行，
+    //    视口外的 .cm-highlight 即使存在也是零高度，滚动它没有任何效果）
+    const editor = noteView?.editor;
+    if (editor && mode === 'source' && typeof ann.line === 'number') {
+      const line = this.resolveEditorLine(editor, ann);
+      if (line !== null) {
+        editor.setCursor({ line, ch: 0 });
+        editor.scrollIntoView(
+          { from: { line, ch: 0 }, to: { line: Math.min(line + 1, editor.lineCount() - 1), ch: 0 } },
+          true
+        );
+        // 滚动到该行后，视口内的标注已渲染，再给高亮本体一个轻指示（保持一致体验）
+        if (target) {
+          window.setTimeout(() => {
+            const mark = this.findAnnotationElement(ann, target, roots, { value: 0 });
+            if (mark && isVisible(mark)) this.flashLocate(mark, ann.text);
+          }, 90);
         }
+        return;
       }
-      if (hit) break;
+    }
+
+    // 2) DOM 文本匹配（只扫可见视图）
+    hit = this.findAnnotationElement(ann, target, roots, level);
+
+    // 命中零高度元素（隐藏视图残留）等于没定位：视作未命中，继续走懒渲染兜底
+    if (hit && !isVisible(hit)) hit = null;
+
+    // 阅读模式懒渲染兜底：阅读视图按分区懒加载，未滚动到的段落不在 DOM 里，
+    // 文本匹配必然失败。按行号比例跳转 + 短轮询重试。
+    // 注意：不用 setEphemeralState({line})——它会触发 Obsidian 内置的「目标块闪烁」
+    // 动画（背景取 --text-highlight-bg，整段泛粉约一秒），观感像全段被高亮。
+    // applyScroll 只改 scrollTop 无副作用；命中后由 revealElement 精确居中，精度无损。
+    if (
+      !hit &&
+      target &&
+      noteView &&
+      mode === 'preview' &&
+      typeof ann.line === 'number' &&
+      ann.line >= 0
+    ) {
+      const preview = noteView.previewMode;
+      const content = await this.plugin.app.vault.cachedRead(file);
+      const totalLines = Math.max(content.split('\n').length, 1);
+      const frac = Math.min(Math.max(ann.line / totalLines, 0), 0.999);
+      const fractions = [
+        frac,
+        Math.min(frac + 0.06, 0.999),
+        Math.max(frac - 0.06, 0),
+        Math.min(frac + 0.12, 0.999),
+        Math.max(frac - 0.12, 0),
+      ];
+      for (const f of fractions) {
+        this.scrollPreviewToFraction(preview, f);
+        hit = await this.pollFindAnnotation(ann, target, roots, level, 3, 80);
+        if (hit) break;
+      }
+      jumped = true;
     }
 
     if (hit) {
-      hit.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      this.flashLocate(hit);
+      this.revealElement(hit, noteView);
+      this.flashLocate(hit, ann.text);
       return;
     }
 
-    // 3) 编辑模式按行号定位
-    const view = this.getActiveView();
-    const editor = view?.editor;
-    if (editor && typeof ann.line === 'number' && ann.line >= 0 && ann.line < editor.lineCount()) {
-      const line = ann.line;
-      editor.setCursor({ line, ch: 0 });
-      editor.scrollIntoView(
-        { from: { line, ch: 0 }, to: { line: Math.min(line + 1, editor.lineCount() - 1), ch: 0 } },
-        true
-      );
-      return;
-    }
+    // 注意：阅读模式下 view.editor 仍然存在，但视口里没有编辑器 DOM，
+    // setCursor 不会有任何视觉反馈——所以这里不再用编辑器兜底，避免「静默假成功」。
 
     new Notice('未能在原文中定位到该标注');
   }
 
-  /** 定位闪烁：outline 动画不影响原高亮/划线样式 */
-  private flashLocate(el: HTMLElement) {
-    if (this.locateFlashTimer) {
-      clearTimeout(this.locateFlashTimer);
-      this.locateFlashTimer = null;
+  /**
+   * 在给定根容器中查找标注元素：
+   * data 属性精确匹配 → mark/.cm-highlight/u 文本多级匹配 → 块级元素兜底（含目标的最短块）
+   * level.value 回传命中方式：9=属性 4=精确 3=包含 2=前缀 1=相似度 -1=块级兜底
+   *
+   * 关键：同一容器内可能同时存在阅读模式（mark）与残留源码视图（.cm-highlight，零高度）。
+   * 先按文本筛出候选（纯字符串计算，不触发重排），再优先返回「可见」的那个，
+   * 避免命中隐藏元素导致「点了没反应」。
+   */
+  private findAnnotationElement(
+    ann: Annotation,
+    target: string,
+    roots: HTMLElement[],
+    level: { value: number }
+  ): HTMLElement | null {
+    for (const root of roots) {
+      // 0) 已注入 data 属性的（带批注的标注）
+      const byId = root.querySelector(`[data-fleur-annotation="${ann.id}"]`) as HTMLElement | null;
+      if (byId) {
+        level.value = 9;
+        return byId;
+      }
     }
-    document.querySelectorAll('.fleur-locate-flash').forEach(e => e.removeClass('fleur-locate-flash'));
-    el.addClass('fleur-locate-flash');
-    this.locateFlashTimer = setTimeout(() => {
-      el.removeClass('fleur-locate-flash');
-      this.locateFlashTimer = null;
-    }, 2000);
+    if (!target) return null;
+
+    // 1) 渲染后的标注元素文本匹配（先筛候选，再按可见性择优）
+    const markHits: { el: HTMLElement; lv: number }[] = [];
+    for (const root of roots) {
+      for (const m of Array.from(root.querySelectorAll('mark, .cm-highlight, u'))) {
+        const lv = matchLevel(normalizeForMatch(m.textContent || ''), target);
+        if (lv > 0) markHits.push({ el: m as HTMLElement, lv });
+      }
+    }
+    markHits.sort((a, b) => b.lv - a.lv);
+    for (const c of markHits) {
+      if (isVisible(c.el)) {
+        level.value = c.lv;
+        return c.el;
+      }
+    }
+    if (markHits.length) {
+      // 全部不可见：交回上层判定（会视作未命中并继续兜底）
+      level.value = markHits[0].lv;
+      return markHits[0].el;
+    }
+
+    // 2) 块级元素兜底：找「包含目标且文本最短」的可见块——即使 mark 没渲染出来，也能落到所在段落
+    const blockHits: { el: HTMLElement; len: number }[] = [];
+    for (const root of roots) {
+      const blocks = root.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, td, th, .cm-line');
+      for (const b of Array.from(blocks)) {
+        const t = normalizeForMatch(b.textContent || '');
+        if (t && t.includes(target)) blockHits.push({ el: b as HTMLElement, len: t.length });
+      }
+    }
+    blockHits.sort((a, b) => a.len - b.len);
+    const best = blockHits.find(c => isVisible(c.el)) ?? blockHits[0] ?? null;
+    if (best) level.value = -1;
+    return best?.el ?? null;
+  }
+
+  /** 短帧轮询匹配：等懒渲染推进后重试，命中即返回（避免长等待造成的卡顿感） */
+  private async pollFindAnnotation(
+    ann: Annotation,
+    target: string,
+    roots: HTMLElement[],
+    level: { value: number },
+    times: number,
+    intervalMs: number
+  ): Promise<HTMLElement | null> {
+    for (let i = 0; i < times; i++) {
+      await new Promise<void>(r => setTimeout(r, intervalMs));
+      const hit = this.findAnnotationElement(ann, target, roots, level);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  /**
+   * 编辑器行号校正：批注创建后笔记可能被编辑，记录的行号会偏移。
+   * 以记录行号为锚点，在 ±10 行内用文本片段校验，返回真正包含该文本的行。
+   */
+  private resolveEditorLine(editor: Editor, ann: Annotation): number | null {
+    const total = editor.lineCount();
+    const base = typeof ann.line === 'number' ? ann.line : -1;
+    if (base < 0) return null;
+
+    const candidates: number[] = [];
+    if (base < total) candidates.push(base);
+    for (let d = 1; d <= 10; d++) {
+      if (base - d >= 0) candidates.push(base - d);
+      if (base + d < total) candidates.push(base + d);
+    }
+
+    const probe = normalizeForMatch((ann.text || '').slice(0, 20));
+    if (probe.length >= 6) {
+      for (const l of candidates) {
+        if (normalizeForMatch(editor.getLine(l)).includes(probe)) return l;
+      }
+    }
+    return base < total ? base : null;
+  }
+
+  /** 让目标元素进入视野：确保所在 leaf 可见 + 瞬时滚动最近的可滚动祖先（不用平滑滚动，避免延迟感） */
+  private revealElement(el: HTMLElement, view: MarkdownView | null) {
+    if (view) {
+      const leaf = this.plugin.app.workspace
+        .getLeavesOfType('markdown')
+        .find(l => l.view === view);
+      if (leaf && this.plugin.app.workspace.activeLeaf !== leaf) {
+        try {
+          this.plugin.app.workspace.setActiveLeaf(leaf, { focus: true });
+        } catch { /* 忽略：API 版本差异 */ }
+      }
+    }
+    const scroller = findScrollParent(el);
+    if (scroller) {
+      const r = el.getBoundingClientRect();
+      const sr = scroller.getBoundingClientRect();
+      const delta = r.top - sr.top - (sr.height / 2 - r.height / 2);
+      scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
+    } else {
+      el.scrollIntoView({ block: 'center' });
+    }
+  }
+
+  /** 将阅读视图滚动到指定比例位置（0-1） */
+  private scrollPreviewToFraction(preview: MarkdownPreviewView, frac: number) {
+    const scroller = this.findPreviewScroller(preview.containerEl);
+    if (scroller) {
+      scroller.scrollTop = frac * Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
+      return;
+    }
+    // 找不到可滚动容器时才依赖官方 API（applyScroll 只是设比例，历史上有不生效的版本）
+    const anyPreview = preview as unknown as { applyScroll?: (n: number) => void };
+    if (typeof anyPreview.applyScroll === 'function') {
+      anyPreview.applyScroll(frac);
+    }
+  }
+
+  /**
+   * 找阅读模式下真正可滚动的容器。
+   * 关键：不能猜类名——直接选「scrollHeight 明显大于 clientHeight」的后代；
+   * 新版 Obsidian 的滚动容器在 .markdown-preview-view 或 .markdown-reading-view 上，
+   * 两者都可能随版本变化，所以最后兜底为全后代里 scrollHeight 差最大的元素。
+   */
+  private findPreviewScroller(root: HTMLElement): HTMLElement | null {
+    const sels = ['.markdown-preview-view', '.markdown-reading-view'];
+    for (const s of sels) {
+      const el = root.querySelector(s) as HTMLElement | null;
+      if (el && el.scrollHeight - el.clientHeight > 10) return el;
+    }
+    if (root.scrollHeight - root.clientHeight > 10) return root;
+    let best: HTMLElement | null = null;
+    let bestDelta = 0;
+    root.querySelectorAll('*').forEach(el => {
+      const h = el as HTMLElement;
+      const d = h.scrollHeight - h.clientHeight;
+      if (d > bestDelta) {
+        bestDelta = d;
+        best = h;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * 在元素内按文本定位 Range 并取矩形：跨行 inline 元素会返回「每行一个」矩形，
+   * 因此可以画出贴合文字的方框，而不是把长文本框成一个跨行大块。
+   */
+  private textRectsIn(el: HTMLElement, text: string): DOMRect[] {
+    if (!text) return [];
+    try {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const segs: { node: Text; start: number }[] = [];
+      let full = '';
+      let n = walker.nextNode() as Text | null;
+      while (n) {
+        segs.push({ node: n, start: full.length });
+        full += n.data;
+        n = walker.nextNode() as Text | null;
+      }
+      if (!full) return [];
+      let needle = text;
+      let idx = full.indexOf(needle);
+      if (idx < 0) {
+        needle = text.trim();
+        idx = needle ? full.indexOf(needle) : -1;
+      }
+      if (idx < 0 || !needle) return [];
+
+      const locate = (pos: number): { node: Text; offset: number } | null => {
+        for (let i = segs.length - 1; i >= 0; i--) {
+          if (pos >= segs[i].start) {
+            return { node: segs[i].node, offset: Math.min(pos - segs[i].start, segs[i].node.data.length) };
+          }
+        }
+        return segs.length ? { node: segs[0].node, offset: 0 } : null;
+      };
+      const a = locate(idx);
+      const b = locate(idx + needle.length);
+      if (!a || !b) return [];
+
+      const range = document.createRange();
+      range.setStart(a.node, a.offset);
+      range.setEnd(b.node, b.offset);
+      return Array.from(range.getClientRects()).filter(r => r.width > 2 && r.height > 2);
+    } catch {
+      return [];
+    }
+  }
+
+  /** 把矩形按行合并（同一视觉行上的碎片合成一段），过滤零尺寸 */
+  private mergeLineRects(rects: DOMRect[]): { left: number; top: number; width: number; height: number }[] {
+    const items = rects
+      .filter(r => r.width > 2 && r.height > 2)
+      .map(r => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom }))
+      .sort((a, b) => a.top - b.top || a.left - b.left);
+    const out: { left: number; top: number; right: number; bottom: number }[] = [];
+    for (const it of items) {
+      const last = out[out.length - 1];
+      const sameLine = last && Math.abs(it.top - last.top) < Math.max(last.bottom - last.top, 1) * 0.6;
+      const adjacent = last && it.left - last.right < 40;
+      if (sameLine && adjacent) {
+        last.right = Math.max(last.right, it.right);
+        last.bottom = Math.max(last.bottom, it.bottom);
+      } else {
+        out.push({ ...it });
+      }
+    }
+    return out.map(r => ({ left: r.left, top: r.top, width: r.right - r.left, height: r.bottom - r.top }));
+  }
+
+  /** 计算定位框：优先按批注文本精确取矩形，退回元素自身矩形 */
+  private measureLocateRects(el: HTMLElement, text?: string) {
+    // 命中带 data 属性的容器时，用其内部的高亮/划线本体来测量，避免把气泡一起框进去
+    const inner = el.querySelector('mark, .cm-highlight, u') as HTMLElement | null;
+    const measureEl = inner && isVisible(inner) ? inner : el;
+
+    const byText = text ? this.textRectsIn(measureEl, text) : [];
+    if (byText.length) return this.mergeLineRects(byText);
+
+    const self = Array.from(measureEl.getClientRects());
+    return this.mergeLineRects(self);
+  }
+
+  /** 清除定位指示器（方框 + 滚动监听 + 定时器） */
+  private clearLocateIndicator() {
+    if (this.locateOverlayTimer) {
+      clearTimeout(this.locateOverlayTimer);
+      this.locateOverlayTimer = null;
+    }
+    if (this.locateScrollTimer) {
+      clearTimeout(this.locateScrollTimer);
+      this.locateScrollTimer = null;
+    }
+    if (this.locateScrollHandler) {
+      window.removeEventListener('scroll', this.locateScrollHandler, true);
+      this.locateScrollHandler = null;
+    }
+    if (this.locateOverlay) {
+      this.locateOverlay.remove();
+      this.locateOverlay = null;
+    }
+  }
+
+  /**
+   * 定位指示：在命中文字外围画一圈方框（逐行贴合），短暂停驻后淡出。
+   * 用 overlay 绝对定位绘制而非 CSS outline —— outline 会把跨多行的 inline 元素
+   * 画成一个横跨所有行的大外框，长批注看起来像「整段被框住」。
+   */
+  private flashLocate(el: HTMLElement, text?: string) {
+    this.clearLocateIndicator();
+
+    const rects = this.measureLocateRects(el, text);
+    if (!rects.length) return;
+
+    const overlay = document.body.createDiv({ cls: 'fleur-locate-overlay' });
+    for (const r of rects) {
+      const box = overlay.createDiv({ cls: 'fleur-locate-box' });
+      const props: Record<string, string> = {
+        '--locate-x': `${Math.round(r.left - 3)}px`,
+        '--locate-y': `${Math.round(r.top - 2)}px`,
+        '--locate-w': `${Math.round(r.width + 6)}px`,
+        '--locate-h': `${Math.round(r.height + 4)}px`,
+      };
+      const anyBox = box as unknown as { setCssProps?: (p: Record<string, string>) => void };
+      if (typeof anyBox.setCssProps === 'function') {
+        anyBox.setCssProps(props);
+      } else {
+        box.setCssStyles({
+          left: props['--locate-x'],
+          top: props['--locate-y'],
+          width: props['--locate-w'],
+          height: props['--locate-h'],
+        });
+      }
+    }
+    this.locateOverlay = overlay;
+
+    // 方框用视口坐标绘制，滚动后必然错位——一旦滚动立即清除。
+    // 但定位流程自身的程序化滚动（行号跳转 / 居中滚动）触发的 scroll 事件
+    // 会在绘制之后才到达，立即监听会把刚画的框自己清掉——表现为「要点两次才出框」。
+    // 因此延迟挂载避开滚动余波；此后用户手动滚动仍会即时清除。
+    const onScroll = () => this.clearLocateIndicator();
+    this.locateScrollTimer = setTimeout(() => {
+      if (!this.locateOverlay) return;
+      this.locateScrollHandler = onScroll;
+      window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    }, 300);
+
+    this.locateOverlayTimer = setTimeout(() => this.clearLocateIndicator(), 1600);
   }
 
   // ═══════════════════════════════════════════

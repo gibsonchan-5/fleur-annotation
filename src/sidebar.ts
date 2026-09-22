@@ -151,7 +151,8 @@ export class SidebarView extends ItemView {
       ? (ann.color || '#E8590C')
       : (ann.color || '#FFC107');
     bar.addClass('fleur-card-bar');
-    bar.setCssStyles({ background: barColor });
+    // 审核合规：颜色经 CSS 变量传入，避免内联静态样式赋值
+    bar.setCssProps({ '--ann-color': barColor });
 
     // 主体
     const main = card.createDiv();
@@ -180,15 +181,21 @@ export class SidebarView extends ItemView {
     let expanded = false;
     textEl.addClass('fleur-card-text');
     textEl.textContent = ann.text;
-    textEl.title = '点击展开/收起';
+    textEl.title = '单击定位到原文 · 双击展开/收起';
+    // 单击 → 定位到原文（与批注区一致；此前单击被「展开/收起」占用，导致点文字区无法定位）
     textEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void this.plugin.patcher.revealAnnotation(ann);
+    });
+    // 双击 → 展开/收起
+    textEl.addEventListener('dblclick', (e) => {
       e.stopPropagation();
       expanded = !expanded;
       textEl.toggleClass('is-expanded', expanded);
     });
 
     // 卡片主体点击 → 定位到原文（对齐 FleurPDF 的定位能力）
-    // 文本区、批注区、操作按钮均有 stopPropagation，不会误触发
+    // 引文区、批注区、操作按钮自行处理点击并 stopPropagation，避免重复触发
     main.addEventListener('click', () => {
       void this.plugin.patcher.revealAnnotation(ann);
     });
@@ -266,7 +273,7 @@ export class SidebarView extends ItemView {
 
     const commentText = stripMarkdown(ann.comment || '');
     display.textContent = commentText;
-    display.title = '单击展开/收起，双击编辑';
+    display.title = '单击定位到原文 · 双击编辑批注';
 
     // 展开提示（文本超过80字时显示）
     let expanded = false;
@@ -281,12 +288,10 @@ export class SidebarView extends ItemView {
       toggleHint.textContent = expanded ? '收起 ‹' : '展开全文 ›';
     });
 
-    // 单击切换展开/收起
+    // 单击 → 定位到原文（此前单击被「展开/收起」占用，导致点批注区无法定位）
     display.addEventListener('click', (e) => {
       e.stopPropagation();
-      expanded = !expanded;
-      display.toggleClass('is-expanded', expanded);
-      toggleHint.textContent = expanded ? '收起 ‹' : '展开全文 ›';
+      void this.plugin.patcher.revealAnnotation(ann);
     });
 
     // 双击原位编辑

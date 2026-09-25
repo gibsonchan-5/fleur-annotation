@@ -1,5 +1,5 @@
 // 主入口
-import { Plugin, WorkspaceLeaf, TFile, Notice, MarkdownView, Menu } from 'obsidian';
+import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu } from 'obsidian';
 import { SidebarView, VIEW_TYPE_FLEUR_NOTE } from './sidebar';
 import { MarkdownPatcher } from './patcher';
 import { AnnotationStore } from './store';
@@ -72,10 +72,39 @@ export default class FleurAnnotationPlugin extends Plugin {
       })
     );
 
+    // 监听文件重命名/移动，让批注数据跟随迁移
+    this.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        void this.handleRename(file, oldPath);
+      })
+    );
+
     // 默认打开侧边栏
     this.app.workspace.onLayoutReady(() => {
       this.activateSidebar();
     });
+  }
+
+  /** 批注数据按路径键控，文件移动/重命名时同步迁移，避免批注与文件失联。 */
+  private async handleRename(file: TAbstractFile, oldPath: string): Promise<void> {
+    try {
+      let moved = 0;
+      if (file instanceof TFolder) {
+        moved = await this.store.migrateFolder(oldPath, file.path);
+      } else if (file instanceof TFile && file.extension === 'md') {
+        moved = await this.store.migratePath(oldPath, file.path);
+      }
+      if (moved > 0) {
+        new Notice(`FleurAnnotation：批注已跟随移动（${moved} 条）`);
+        // 若移动的正是当前打开的文件，刷新侧边栏加载迁移后的数据
+        const active = this.app.workspace.getActiveFile();
+        if (active && (active.path === file.path || active.path.startsWith(file.path + '/'))) {
+          this.refreshSidebar();
+        }
+      }
+    } catch (e) {
+      console.error('FleurAnnotation: 批注迁移失败', oldPath, e);
+    }
   }
 
   onunload() {

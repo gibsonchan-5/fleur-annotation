@@ -1,5 +1,5 @@
 // 主入口
-import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu } from 'obsidian';
+import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu, Platform } from 'obsidian';
 import { SidebarView, VIEW_TYPE_FLEUR_NOTE } from './sidebar';
 import { MarkdownPatcher } from './patcher';
 import { AnnotationStore } from './store';
@@ -28,7 +28,7 @@ export default class FleurAnnotationPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
 
-    this.store = new AnnotationStore(this.app, this.manifest.id);
+    this.store = new AnnotationStore(this.app, this.manifest.id, () => this.settings);
     this.patcher = new MarkdownPatcher(this);
     this.patcher.install();
 
@@ -79,10 +79,73 @@ export default class FleurAnnotationPlugin extends Plugin {
       })
     );
 
-    // 默认打开侧边栏
+    // 笔记被删除 → 对应批注 sidecar 一并清理（否则成为孤儿，全量体检时发现的存量问题）
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        void this.handleDelete(file);
+      })
+    );
+
+    // 默认打开侧边栏（移动端侧边栏会占满整屏，不自动打开，避免启动即被覆盖）
     this.app.workspace.onLayoutReady(() => {
-      this.activateSidebar();
+      if (!Platform.isMobile) this.activateSidebar();
+      void this.migrateToVaultDir();
     });
+  }
+
+  /**
+   * 开启「跨设备同步批注数据」后的一次性迁移：把配置目录里的存量 sidecar
+   * （hash 文件名）搬进 Vault 同步目录（真实路径镜像），按 fileId 对齐、并集合并。
+   * 幂等：以 settings.annotationsSyncMigrated 为标记，新文件已存在时合并语义天然安全。
+   * 旧文件保留不删——回滚到关闭开关时数据仍在。
+   */
+  private async migrateToVaultDir(): Promise<void> {
+    if (!this.settings.syncAnnotationsToVault || this.settings.annotationsSyncMigrated) return;
+    try {
+      const sidecars = await this.store.listLegacySidecars();
+      let moved = 0;
+      for (const { fileId } of sidecars) {
+        const data = await this.store.load(fileId);
+        // load 走的是新目录（同步模式已开启）；旧文件里的存量数据并集合并进去
+        const legacy = await this.store.legacyData(fileId);
+        if (!legacy) continue;
+        const before = data.annotations.length + (data.aiResults?.length ?? 0);
+        const ids = new Set(data.annotations.map(a => a.id));
+        for (const a of legacy.annotations ?? []) {
+          if (!ids.has(a.id)) {
+            data.annotations.push(a);
+            ids.add(a.id);
+            moved++;
+          }
+        }
+        const rids = new Set((data.aiResults ?? []).map(r => r.id));
+        for (const r of legacy.aiResults ?? []) {
+          if (!rids.has(r.id)) {
+            (data.aiResults ??= []).push(r);
+            rids.add(r.id);
+            moved++;
+          }
+        }
+        const after = data.annotations.length + (data.aiResults?.length ?? 0);
+        if (after > before || before === 0) await this.store.save(data);
+      }
+      this.settings.annotationsSyncMigrated = true;
+      await this.saveSettings();
+      if (moved > 0) new Notice(`FleurAnnotation：已迁移 ${moved} 条批注到同步目录`);
+    } catch (e) {
+      console.error('FleurAnnotation: 批注数据迁移到同步目录失败', e);
+    }
+  }
+
+  /** 笔记删除时清理其批注 sidecar（两种模式下都删，避免孤儿堆积） */
+  private async handleDelete(file: TAbstractFile): Promise<void> {
+    try {
+      if (file instanceof TFile && file.extension === 'md') {
+        await this.store.deleteSidecar(file.path);
+      }
+    } catch (e) {
+      console.error('FleurAnnotation: 清理批注数据失败', file.path, e);
+    }
   }
 
   /** 批注数据按路径键控，文件移动/重命名时同步迁移，避免批注与文件失联。 */

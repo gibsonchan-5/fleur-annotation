@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu, TFile, MarkdownView } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu, TFile, MarkdownView, Platform } from 'obsidian';
 import { stripMarkdown } from './editor';
 import { resolveSystemPrompt } from './ai-prompts';
 import type FleurAnnotationPlugin from './main';
@@ -117,7 +117,10 @@ export class SidebarView extends ItemView {
     body.addClass('fleur-sidebar-body');
 
     if (this.data.annotations.length === 0) {
-      const empty = body.createDiv({ text: '暂无批注，选中文本右键添加' });
+      const hintText = Platform.isMobile
+        ? '还没有批注。选中文本即可高亮或写想法。'
+        : '暂无批注，选中文本右键添加';
+      const empty = body.createDiv({ text: hintText });
       empty.addClass('fleur-sidebar-empty');
       return;
     }

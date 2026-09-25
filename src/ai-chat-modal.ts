@@ -1,4 +1,4 @@
-import { MarkdownRenderer, Notice } from 'obsidian';
+import { MarkdownRenderer, Notice, Platform } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import { AIService } from './ai-service';
 import { resolveSystemPrompt, resolveAskHint } from './ai-prompts';
@@ -50,6 +50,7 @@ export class AIChatPanel {
   }
 
   private static savePos(left: number, top: number) {
+    if (Platform.isMobile) return; // 移动端全屏面板，无位置可记
     try {
       localStorage.setItem(AIChatPanel.POS_KEY, JSON.stringify({ left, top }));
     } catch { /* ignore */ }
@@ -93,44 +94,53 @@ export class AIChatPanel {
   private buildPanel(anchorX?: number, anchorY?: number) {
     const panelWidth = 440;
     const panelHeight = 560;
-    let left: number;
-    let top: number;
+    const mobile = Platform.isMobile;
+    let left = 0;
+    let top = 0;
 
-    // 优先级：上次保存的位置 > 鼠标位置 > 默认位置
-    const saved = AIChatPanel.getSavedPos();
-    if (saved) {
-      left = saved.left;
-      top = saved.top;
-    } else if (anchorX !== undefined && anchorY !== undefined) {
-      // 优先在鼠标右侧打开，空间不够则放左侧
-      if (anchorX + panelWidth + 20 < window.innerWidth) {
-        left = anchorX + 20;
+    // 移动端：底部轻量卡片（样式由 .fleur-ai-mobile 控制，纯 CSS 定位，
+    // 对齐 fleurEpub 的两级形态），不参与桌面定位/记忆位置
+    if (!mobile) {
+      // 优先级：上次保存的位置 > 鼠标位置 > 默认位置
+      const saved = AIChatPanel.getSavedPos();
+      if (saved) {
+        left = saved.left;
+        top = saved.top;
+      } else if (anchorX !== undefined && anchorY !== undefined) {
+        // 优先在鼠标右侧打开，空间不够则放左侧
+        if (anchorX + panelWidth + 20 < window.innerWidth) {
+          left = anchorX + 20;
+        } else {
+          left = Math.max(20, anchorX - panelWidth - 20);
+        }
+        // 垂直方向：优先在鼠标下方，空间不够则放上方
+        if (anchorY + panelHeight + 20 < window.innerHeight) {
+          top = anchorY + 20;
+        } else {
+          top = Math.max(20, anchorY - panelHeight - 20);
+        }
       } else {
-        left = Math.max(20, anchorX - panelWidth - 20);
+        // 默认位置：屏幕右侧，垂直居中
+        left = window.innerWidth - panelWidth - 24;
+        top = (window.innerHeight - panelHeight) / 2;
+        top = Math.max(20, top);
       }
-      // 垂直方向：优先在鼠标下方，空间不够则放上方
-      if (anchorY + panelHeight + 20 < window.innerHeight) {
-        top = anchorY + 20;
-      } else {
-        top = Math.max(20, anchorY - panelHeight - 20);
-      }
-    } else {
-      // 默认位置：屏幕右侧，垂直居中
-      left = window.innerWidth - panelWidth - 24;
-      top = (window.innerHeight - panelHeight) / 2;
-      top = Math.max(20, top);
     }
 
     this.panelEl = document.body.createDiv();
     this.panelEl.addClass('fleur-ai-panel');
-    // 动态位置/尺寸通过 setCssStyles 设置
-    this.panelEl.setCssStyles({
-      top: `${top}px`,
-      left: `${left}px`,
-      right: 'auto',
-      width: `${panelWidth}px`,
-      height: `${panelHeight}px`
-    });
+    if (mobile) {
+      this.panelEl.addClass('fleur-ai-mobile');
+    } else {
+      // 桌面：动态位置/尺寸通过 setCssStyles 设置；移动端由 CSS 接管定位
+      this.panelEl.setCssStyles({
+        top: `${top}px`,
+        left: `${left}px`,
+        right: 'auto',
+        width: `${panelWidth}px`,
+        height: `${panelHeight}px`
+      });
+    }
 
     // 动画 keyframes 已移至 styles.css
 
@@ -144,10 +154,44 @@ export class AIChatPanel {
     // 标题栏
     const header = this.panelEl.createDiv();
     header.addClass('fleur-ai-header');
-    header.addEventListener('mousedown', (e) => this.onDragStart(e));
+    // 拖拽仅桌面；移动端以展开/收起替代拖拽（对齐 fleurEpub 两级形态）
+    if (!mobile) header.addEventListener('mousedown', (e) => this.onDragStart(e));
 
     const title = header.createSpan({ text: '阅读助手' });
     title.addClass('fleur-ai-title');
+
+    // 移动端：展开/收起按钮（底部轻量卡片 ↔ 大半屏对话，微信读书式）
+    if (mobile) {
+      const expandBtn = header.createEl('button');
+      expandBtn.addClass('fleur-ai-expand-btn');
+      expandBtn.setAttribute('aria-label', '展开对话');
+      const setExpandIcon = (collapsed: boolean) => {
+        expandBtn.empty();
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '18');
+        svg.setAttribute('height', '18');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        // 收起态显示向上箭头（展开），展开态显示向下箭头（收回卡片）
+        poly.setAttribute('points', collapsed ? '18 15 12 9 6 15' : '6 9 12 15 18 9');
+        svg.appendChild(poly);
+        expandBtn.appendChild(svg);
+      };
+      setExpandIcon(true);
+      expandBtn.addEventListener('click', () => {
+        const el = this.panelEl;
+        if (!el) return;
+        const expanded = el.hasClass('is-expanded');
+        el.toggleClass('is-expanded', !expanded);
+        expandBtn.setAttribute('aria-label', expanded ? '展开对话' : '收起卡片');
+        setExpandIcon(expanded);
+      });
+    }
 
     const closeBtn = header.createEl('button');
     closeBtn.textContent = '×';
@@ -218,7 +262,8 @@ export class AIChatPanel {
     this.sendBtn.addClass('fleur-ai-send-btn');
     this.sendBtn.addEventListener('click', () => this.onSendOrAbort());
 
-    // 右下角尺寸调整手柄
+    // 右下角尺寸调整手柄（仅桌面；移动端以展开/收起替代缩放）
+    if (mobile) return;
     const resizeHandle = this.panelEl.createDiv();
     resizeHandle.addClass('fleur-ai-resize-handle');
     resizeHandle.addEventListener('mousedown', (e) => this.onResizeStart(e));

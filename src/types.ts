@@ -9,6 +9,11 @@ export interface Annotation {
   color?: string;
   underlineStyle?: 'solid' | 'dashed' | 'dotted' | 'wavy';
   createdAt: number;
+  /** 最后修改时间（多端同步合并时按此取新；老数据缺省回落 createdAt） */
+  updatedAt?: number;
+  /** 墓碑：非空表示已删除。跨设备同步下删除不物理移除——否则另一端的
+   *  存活副本会在合并取并集时被「救回来」。渲染一律过滤墓碑。 */
+  deletedAt?: number;
 }
 
 export interface AIResult {
@@ -17,6 +22,8 @@ export interface AIResult {
   question: string;
   answer: string;
   createdAt: number;
+  /** 墓碑，语义同 Annotation.deletedAt */
+  deletedAt?: number;
 }
 
 export interface MarkdownAnnotationData {

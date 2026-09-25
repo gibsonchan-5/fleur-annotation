@@ -33,6 +33,11 @@ export interface FleurSettings {
   noteFolder: string;
   exportTags: string;
 
+  // 跨设备同步批注数据（对齐 fleurEpub「分域存储 + 合并写 + 墓碑」方案）
+  syncAnnotationsToVault?: boolean; // 开启后批注写入 Vault 内普通目录，随同步器跨设备流转
+  annotationsDataDir?: string; // 同步模式数据目录（Vault 内相对路径）
+  annotationsSyncMigrated?: boolean; // 一次性迁移标记：配置目录存量 sidecar 已搬入同步目录
+
   sidebarPosition: 'right' | 'left';
   sidebarDefaultOpen: boolean;
   annotationSort: 'line' | 'time';
@@ -56,6 +61,8 @@ export const DEFAULT_SETTINGS: FleurSettings = {
   underlineColor: '#E8590C',
   noteFolder: 'FleurAnnotation',
   exportTags: 'fleur-annotation,批注导出',
+  syncAnnotationsToVault: false,
+  annotationsDataDir: 'FleurAnnotation 数据',
   sidebarPosition: 'right',
   sidebarDefaultOpen: true,
   annotationSort: 'line',
@@ -464,6 +471,29 @@ export class FleurSettingTab extends PluginSettingTab {
           this.plugin.settings.exportTags = value.trim();
           await this.plugin.saveSettings();
         }));
+
+    // 跨设备同步
+    new Setting(containerEl)
+      .setName('跨设备同步批注数据')
+      .setDesc('开启后批注数据写入 Vault 内普通目录（而非 .obsidian 隐藏目录），可随 iCloud、Obsidian Sync、Remotely Save 等同步器在桌面端与移动端之间同步；内置合并写与删除墓碑机制，两端同时改动不会互相覆盖丢数据。开关关闭时数据仍存配置目录，行为与旧版一致。')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.syncAnnotationsToVault ?? false)
+        .onChange(async (value) => {
+          this.plugin.settings.syncAnnotationsToVault = value;
+          await this.plugin.saveSettings();
+          syncDirSetting.settingEl.toggleClass('fleur-setting-disabled', !value);
+        }));
+    const syncDirSetting = new Setting(containerEl)
+      .setName('批注数据目录')
+      .setDesc('同步模式下批注数据在 Vault 内的存放目录（目录结构按笔记路径镜像）。改动后立即生效，旧目录中的数据会保留。')
+      .addText(text => text
+        .setPlaceholder('FleurAnnotation 数据')
+        .setValue(this.plugin.settings.annotationsDataDir ?? 'FleurAnnotation 数据')
+        .onChange(async (value) => {
+          this.plugin.settings.annotationsDataDir = value.trim();
+          await this.plugin.saveSettings();
+        }));
+    syncDirSetting.settingEl.toggleClass('fleur-setting-disabled', !(this.plugin.settings.syncAnnotationsToVault ?? false));
 
     // 菜单设置
     new Setting(containerEl).setHeading().setName('菜单设置');

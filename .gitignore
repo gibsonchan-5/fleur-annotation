@@ -10,3 +10,5 @@ dist/
 data/
 # Obsidian 插件设置文件（可能包含 AI API Key），不上传仓库
 data.json
+test/*.mjs
+test/*.cjs

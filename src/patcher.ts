@@ -1,6 +1,6 @@
 // Markdown 编辑器拦截 + 右键菜单 + 侵入式编辑
 // 支持 Live Preview 模式和 Reading Mode
-import { Menu, MarkdownView, Notice, Modal, TFile } from 'obsidian';
+import { Menu, MarkdownView, Notice, Modal, TFile, Platform } from 'obsidian';
 import type { Editor, MarkdownPreviewView } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
@@ -243,6 +243,13 @@ export class MarkdownPatcher {
   /** 保存最近一次选中的文本（用于右键菜单） */
   private lastSelection: string | null = null;
 
+  /** 移动端选区工具条：selectionchange 监听与稳定判定定时器 */
+  private boundSelectionChange: (() => void) | null = null;
+  private mSelTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 选区文本快照：工具条点击时选区可能已塌缩，用快照兜底（对齐 fleurEpub selSnapshot） */
+  private mSelSnapshot = '';
+  private mSelBar: HTMLElement | null = null;
+
   constructor(private plugin: FleurAnnotationPlugin) {}
 
   install() {
@@ -264,13 +271,25 @@ export class MarkdownPatcher {
       setTimeout(() => this.injectCommentBubbles(), 50);
     });
 
-
+    // 移动端：选区工具条（触屏没有右键语义，长按选中后底部弹出，对齐 fleurEpub mselbar；
+    // 桌面端不注册，交互完全不受影响）
+    if (Platform.isMobile) {
+      this.boundSelectionChange = () => {
+        if (this.mSelTimer) clearTimeout(this.mSelTimer);
+        // 触摸选段没有 mouseup 语义，靠「选区 300ms 不再变化」判定稳定（对齐 fleurEpub）
+        this.mSelTimer = setTimeout(() => this.onMobileSelectionStable(), 300);
+      };
+      document.addEventListener('selectionchange', this.boundSelectionChange);
+    }
   }
 
   uninstall() {
     if (this.boundContextMenu) document.removeEventListener('contextmenu', this.boundContextMenu, true);
     if (this.boundClick) document.removeEventListener('click', this.boundClick, true);
     if (this.boundMouseUp) document.removeEventListener('mouseup', this.boundMouseUp, true);
+    if (this.boundSelectionChange) document.removeEventListener('selectionchange', this.boundSelectionChange);
+    if (this.mSelTimer) clearTimeout(this.mSelTimer);
+    this.hideMobileSelectionBar();
     if (this.observer) { this.observer.disconnect(); this.observer = null; }
     if (this.injectTimer) clearTimeout(this.injectTimer);
     this.removeTooltip();
@@ -440,6 +459,121 @@ export class MarkdownPatcher {
       item.setIcon('languages');
       item.onClick(() => this.askAITranslate(selection));
     });
+  }
+
+  // ── 移动端选区工具条（对齐 fleurEpub mselbar 设计）──────────────
+
+  /** selectionchange 稳定后回调：选区仍存在且在笔记正文内 → 底部弹出工具条 */
+  private onMobileSelectionStable() {
+    const sel = document.getSelection();
+    const text = sel?.toString() ?? '';
+    if (!text.trim()) {
+      this.hideMobileSelectionBar();
+      return;
+    }
+    const anchorEl = sel!.anchorNode instanceof Element
+      ? sel!.anchorNode as Element
+      : sel!.anchorNode?.parentElement;
+    if (!anchorEl) {
+      this.hideMobileSelectionBar();
+      return;
+    }
+    // 只对笔记正文生效（编辑/阅读两种模式），插件自身 UI 与弹窗内选区不触发
+    if (!anchorEl.closest('.markdown-source-view, .markdown-reading-view, .markdown-preview-view')) {
+      this.hideMobileSelectionBar();
+      return;
+    }
+    if (anchorEl.closest('.fleur-ai-panel, .fleur-sidebar, .modal, .menu')) {
+      this.hideMobileSelectionBar();
+      return;
+    }
+    this.mSelSnapshot = text;
+    // 防闪烁：工具条已在显示（selectionchange 连发）→ 仅刷新快照，不拆建
+    if (this.mSelBar) return;
+    this.showMobileSelectionBar();
+  }
+
+  /** 底部工具条：只放系统菜单没有的能力（高亮/划线/批注/AI），不放复制——对齐 fleurEpub 决策① */
+  private showMobileSelectionBar() {
+    this.hideMobileSelectionBar();
+    const bar = document.body.createDiv('fleur-mselbar');
+    // 落位前先隐形，等量宽完成再显形，避免闪位
+    bar.setCssStyles({ visibility: 'hidden' });
+    this.mSelBar = bar;
+    // 阻止 mousedown 让选区塌缩（触屏上 touchstart 亦同）
+    const press = (el: HTMLElement) => el.addEventListener('mousedown', (e) => e.preventDefault());
+
+    const mkBtn = (label: string, title: string, fn: () => void) => {
+      const b = bar.createSpan('fleur-mselbar-btn');
+      b.setText(label);
+      b.setAttribute('aria-label', title);
+      press(b);
+      b.addEventListener('click', () => {
+        this.hideMobileSelectionBar();
+        fn();
+      });
+    };
+
+    // 高亮色点（取当前设置色）
+    const dot = bar.createSpan('fleur-mselbar-dot');
+    dot.setCssStyles({ background: this.plugin.settings.highlightColor });
+    dot.setAttribute('aria-label', '添加高亮');
+    press(dot);
+    dot.addEventListener('click', () => {
+      this.hideMobileSelectionBar();
+      void this.useMobileSelection((sel, view, inReading) =>
+        this.addHighlight(sel, inReading ? null : view, inReading));
+    });
+    bar.createDiv('fleur-mselbar-sep');
+
+    mkBtn('U', '添加划线', () => {
+      void this.useMobileSelection((sel, view, inReading) =>
+        this.addUnderline(sel, inReading ? null : view, inReading));
+    });
+    mkBtn('✎', '添加批注', () => {
+      this.useMobileSelection((sel, view, inReading) =>
+        this.showCommentModal(sel, inReading ? null : view, inReading));
+    });
+    bar.createDiv('fleur-mselbar-sep');
+    mkBtn('AI', 'AI 解释', () => {
+      this.useMobileSelection((sel) => this.askAIExplain(sel));
+    });
+    mkBtn('译', 'AI 翻译', () => {
+      this.useMobileSelection((sel) => this.askAITranslate(sel));
+    });
+
+    // 两次 rAF：首帧字号未落定时量到的宽度偏大，落位会算歪（对齐 fleurEpub）
+    const place = () => {
+      if (this.mSelBar !== bar) return;
+      const bw = bar.offsetWidth;
+      const left = Math.max(8, (window.innerWidth - bw) / 2);
+      bar.setCssStyles({
+        left: `${left}px`,
+        right: 'auto',
+        visibility: '',
+      });
+    };
+    window.requestAnimationFrame(() => window.requestAnimationFrame(place));
+  }
+
+  private hideMobileSelectionBar() {
+    if (this.mSelBar) {
+      this.mSelBar.remove();
+      this.mSelBar = null;
+    }
+  }
+
+  /** 工具条按钮公共入口：取当前活动视图与模式，把快照文本分发给批注 API；无活动笔记则忽略 */
+  private useMobileSelection(fn: (sel: string, editor: Editor | null, inReadingMode: boolean) => void): void {
+    const view = this.getActiveView();
+    const sel = this.mSelSnapshot;
+    if (!sel.trim()) return;
+    if (!view) {
+      new Notice('没有活动的笔记');
+      return;
+    }
+    const inReading = view.getMode() === 'preview';
+    fn(sel, inReading ? null : view.editor, inReading);
   }
 
   /** Reading Mode 下的自定义右键菜单（拦截原生菜单） */

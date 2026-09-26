@@ -203,7 +203,95 @@ console.log('\n═══ 测试 3：移动端对照组（证明分支真实分�
 }
 
 	// ── 测试 4：CSS 作用域核查 ──────────────────────────────────
-console.log('\n═══ 测试 4：styles.css 移动端块作用域 ═══');
+console.log('\n═══ 测试 5：移动端点按标注 → 清除动作卡（fleurEpub annquick 范式）═══');
+{
+	const deleted: string[] = [];
+	function makeTapPlugin() {
+		const p = makeMockPlugin();
+		p.app.workspace.getActiveFile = () => ({ path: 'test.md' }) as any;
+		p.refreshSidebar = () => {};
+		p.store = {
+			load: async () => ({
+				annotations: [
+					{ id: 'a1', type: 'highlight', text: '被高亮的文字', createdAt: 1, updatedAt: 1 },
+					{ id: 'a2', type: 'comment', text: '带批注的句子', comment: '这是批注内容', createdAt: 2, updatedAt: 2 },
+				],
+			}),
+			deleteAnnotation: async (_path: string, id: string) => { deleted.push(id); },
+		};
+		return p;
+	}
+	const clickAt = (el: Element) => {
+		el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, clientX: 120, clientY: 200 }));
+	};
+
+	// ─ 桌面负例：点 mark 不弹卡 ─
+	(obsidian.Platform as any).isMobile = false;
+	{
+		const plugin = makeTapPlugin();
+		const patcher = new MarkdownPatcher(plugin);
+		patcher.install();
+		const mark = document.createElement('mark');
+		mark.textContent = '被高亮的文字';
+		document.body.appendChild(mark);
+		clickAt(mark);
+		await sleep(100);
+		assert(!document.querySelector('.fleur-ann-mcard'), '桌面点按标注不弹动作卡（桌面零影响）');
+		mark.remove();
+		patcher.uninstall();
+	}
+
+	// ─ 移动端正例：点 mark → 卡 → 清除 ─
+	(obsidian.Platform as any).isMobile = true;
+	{
+		// 清掉测试 3 遗留的活动选区：真实场景轻点会先塌缩选区，
+		// 这里不清理会让 onMobileTap 误判为「正在选段」而放行失败
+		dom.window.getSelection()!.removeAllRanges();
+		const plugin = makeTapPlugin();
+		const patcher = new MarkdownPatcher(plugin);
+		patcher.install();
+		const view = document.createElement('div');
+		view.className = 'markdown-preview-view';
+		view.innerHTML = '<p><mark>被高亮的文字</mark> 正文 <mark>带批注的句子</mark></p>';
+		document.body.appendChild(view);
+		await sleep(450); // 等 injectCommentBubbles debounce 注入 data-fleur-annotation id
+		const marks = view.querySelectorAll('mark');
+		assert(marks[0].getAttribute('data-fleur-annotation') === 'a1', '注入阶段给纯高亮也打了标注 id（点按命中前提）');
+		// 气泡是 mark.after(bubble) 的兄弟节点（历史实现如此），不是子元素
+		const bubbleCount = view.querySelectorAll('.fleur-annotation-bubble').length;
+		assert(bubbleCount === 1, `纯高亮不注入气泡、带批注内容的注入一个（实际 ${bubbleCount} 个）`);
+
+		clickAt(marks[0]);
+		await sleep(100);
+		let card = document.querySelector('.fleur-ann-mcard') as HTMLElement;
+		assert(!!card, '移动端点按高亮 → 弹出动作卡');
+		assert(!!card && !card.querySelector('.fleur-ann-mcard-text'), '纯高亮无批注内容区（紧凑清除卡）');
+		const btnLabel = card?.querySelector('.fleur-ann-mcard-label')?.textContent;
+		assert(btnLabel === '清除高亮', `清除按钮按类型描述（实际：${btnLabel}）`);
+		(card!.querySelector('.fleur-ann-mcard-btn') as HTMLElement).click();
+		await sleep(50);
+		assert(deleted.includes('a1'), '点击清除 → 走 deleteAnnotation（墓碑删除链路）');
+		assert(!document.querySelector('.fleur-ann-mcard'), '清除后动作卡关闭');
+
+		clickAt(marks[1]);
+		await sleep(100);
+		card = document.querySelector('.fleur-ann-mcard') as HTMLElement;
+		assert(!!card && !!card.querySelector('.fleur-ann-mcard-text'), '点按带批注的标注 → 卡内展示批注内容');
+		const btnLabel2 = card?.querySelector('.fleur-ann-mcard-label')?.textContent;
+		assert(btnLabel2 === '清除批注', `批注型清除按钮文案正确（实际：${btnLabel2}）`);
+		document.body.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+		await sleep(50);
+		assert(!document.querySelector('.fleur-ann-mcard'), '点击卡片外部 → 关闭（不误删）');
+		assert(!deleted.includes('a2'), '仅点外部不触发删除');
+
+		view.remove();
+		patcher.uninstall();
+		assert(!document.querySelector('.fleur-ann-mcard'), 'uninstall 清理动作卡');
+	}
+	(obsidian.Platform as any).isMobile = false;
+}
+
+console.log('\n═══ 测试 6：styles.css 移动端块作用域 ═══');
 {
 	const fs = await import('fs');
 	const css = fs.readFileSync(new URL('../styles.css', import.meta.url), 'utf8');

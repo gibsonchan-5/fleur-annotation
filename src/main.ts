@@ -51,6 +51,9 @@ export default class FleurAnnotationPlugin extends Plugin {
     // Live Preview 右键菜单：追加到原生菜单
     this.registerEvent(
       this.app.workspace.on('editor-menu', (menu, editor, info) => {
+        // 移动端不追加：长按选区时系统选区菜单必然弹出（拦不住），
+        // 再追加会撑大菜单、加重遮挡选区手柄；移动端唯一入口 = 底部工具条 mselbar
+        if (Platform.isMobile) return;
         const selection = editor.getSelection();
         if (!selection || selection.trim().length === 0) return;
         this.patcher.appendMenuItems(menu, selection);

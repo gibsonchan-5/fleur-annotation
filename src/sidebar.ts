@@ -73,6 +73,8 @@ export class SidebarView extends ItemView {
   }
 
   private lastFilePath: string | null = null;
+  /** 活跃文件内容缓存（内文顺序排序用：同一段落多条批注按字符偏移排） */
+  private fileContent: string | null = null;
 
   private async loadData() {
     const file = this.app.workspace.getActiveFile();
@@ -81,12 +83,23 @@ export class SidebarView extends ItemView {
       if (this.lastFilePath) {
         try {
           this.data = await this.plugin.store.load(this.lastFilePath);
+          await this.cacheFileContent(this.lastFilePath);
         } catch { /* keep existing data */ }
       }
       return;
     }
     this.lastFilePath = file.path;
     this.data = await this.plugin.store.load(file.path);
+    await this.cacheFileContent(file.path);
+  }
+
+  private async cacheFileContent(path: string) {
+    try {
+      const f = this.app.vault.getAbstractFileByPath(path);
+      this.fileContent = f instanceof TFile ? await this.app.vault.cachedRead(f) : null;
+    } catch {
+      this.fileContent = null;
+    }
   }
 
   // ════════════════════════════════════════════
@@ -125,16 +138,36 @@ export class SidebarView extends ItemView {
       return;
     }
 
-    // 按设置排序：内文顺序（行号升序）或时间倒序
+    // 按设置排序：内文顺序（行号 → 行内字符偏移 → 时间）或时间倒序
     const sortMode = this.plugin.settings.annotationSort || 'line';
+    // docx 转换的 md 一段就是一行，同一段落里多条批注行号相同，
+    // 须按字符偏移区分先后；偏移实时计算，存量批注无需迁移，
+    // 锚文本找不到（内容已改）时退回行号/时间
+    const offsets = new Map<string, number>();
+    if (sortMode !== 'time' && this.fileContent) {
+      for (const ann of this.data.annotations) {
+        let idx = -1;
+        let from = 0;
+        const occ = ann.occurrence ?? 0;
+        for (let i = 0; i <= occ && ann.text; i++) {
+          idx = this.fileContent.indexOf(ann.text, from);
+          if (idx < 0) break;
+          from = idx + 1;
+        }
+        offsets.set(ann.id, idx < 0 ? Number.MAX_SAFE_INTEGER : idx);
+      }
+    }
     const sorted = [...this.data.annotations].sort((a, b) => {
       if (sortMode === 'time') {
         return b.createdAt - a.createdAt;
       }
-      // 内文顺序：优先行号，行号缺失或相同时退回时间
+      // 内文顺序：行号优先，同段落内按字符偏移，均不可得时退回创建时间
       const la = a.line ?? Number.MAX_SAFE_INTEGER;
       const lb = b.line ?? Number.MAX_SAFE_INTEGER;
       if (la !== lb) return la - lb;
+      const oa = offsets.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const ob = offsets.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      if (oa !== ob) return oa - ob;
       return a.createdAt - b.createdAt;
     });
     sorted.forEach(ann => {

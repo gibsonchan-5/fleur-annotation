@@ -578,6 +578,10 @@ export class MarkdownPatcher {
 
   /** Reading Mode 下的自定义右键菜单（拦截原生菜单） */
   private onContextMenu(e: MouseEvent) {
+    // 移动端不弹自定义菜单：触屏长按会同时触发系统选区菜单（不走 DOM contextmenu，
+    // preventDefault 拦不住），自定义菜单再叠上去就是两层悬浮菜单且盖住选区手柄。
+    // 移动端唯一入口 = 底部工具条 mselbar（对齐 fleurEpub 决策）
+    if (Platform.isMobile) return;
     // Live Preview 模式下不再拦截，由 editor-menu 事件处理
     if (!this.plugin.settings.readingContextMenu) return;
 

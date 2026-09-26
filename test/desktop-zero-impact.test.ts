@@ -273,15 +273,27 @@ console.log('\n═══ 测试 5：移动端点按标注 → 清除动作卡（
 		assert(deleted.includes('a1'), '点击清除 → 走 deleteAnnotation（墓碑删除链路）');
 		assert(!document.querySelector('.fleur-ann-mcard'), '清除后动作卡关闭');
 
+		// 真机修复回归：点按落在按钮子元素（图标/文字 span）上同样生效（closest 命中）
+		clickAt(marks[0]);
+		await sleep(100);
+		card = document.querySelector('.fleur-ann-mcard') as HTMLElement;
+		assert(!!card, '再次点按弹出动作卡');
+		const labelSpan = card!.querySelector('.fleur-ann-mcard-label') as HTMLElement;
+		labelSpan.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+		await sleep(50);
+		assert(deleted.filter(d => d === 'a1').length === 2, '点按按钮子元素（label span）同样触发清除');
+		assert(!document.querySelector('.fleur-ann-mcard'), '子元素点击后动作卡关闭');
+
 		clickAt(marks[1]);
 		await sleep(100);
 		card = document.querySelector('.fleur-ann-mcard') as HTMLElement;
 		assert(!!card && !!card.querySelector('.fleur-ann-mcard-text'), '点按带批注的标注 → 卡内展示批注内容');
 		const btnLabel2 = card?.querySelector('.fleur-ann-mcard-label')?.textContent;
 		assert(btnLabel2 === '清除批注', `批注型清除按钮文案正确（实际：${btnLabel2}）`);
-		document.body.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+		// 点外部关闭已改 pointerdown 捕获（fleurEpub 同款，先于 click 合成）
+		document.body.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
 		await sleep(50);
-		assert(!document.querySelector('.fleur-ann-mcard'), '点击卡片外部 → 关闭（不误删）');
+		assert(!document.querySelector('.fleur-ann-mcard'), 'pointerdown 点卡片外部 → 关闭（不误删）');
 		assert(!deleted.includes('a2'), '仅点外部不触发删除');
 
 		view.remove();

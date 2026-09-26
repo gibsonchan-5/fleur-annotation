@@ -1129,6 +1129,55 @@ body.is-mobile .fleur-mselbar-sep {
   background-color: var(--background-modifier-border);
 }
 
+/* ── 移动端：点按标注 → 动作卡（对齐 fleurEpub annquick：内容 + 明确清除项，不直接擦除）── */
+body.is-mobile .fleur-ann-mcard {
+  position: fixed;
+  z-index: var(--layer-status-bar, 30);
+  max-width: min(78vw, 320px);
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-s);
+  padding: 10px 12px 8px;
+}
+body.is-mobile .fleur-ann-mcard-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-normal);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 6px;
+}
+body.is-mobile .fleur-ann-mcard-toggle {
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 0 6px;
+}
+body.is-mobile .fleur-ann-mcard-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-error);
+  font-size: 15px;
+  cursor: pointer;
+}
+body.is-mobile .fleur-ann-mcard-btn:active {
+  opacity: 0.55;
+}
+body.is-mobile .fleur-ann-mcard-icon {
+  display: inline-flex;
+  align-items: center;
+}
+body.is-mobile .fleur-ann-mcard-icon .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
 /* ── 批注弹窗（CommentModal）：小屏全屏化 ── */
 body.is-mobile .fleur-annotation-comment-modal {
   width: 100vw !important;

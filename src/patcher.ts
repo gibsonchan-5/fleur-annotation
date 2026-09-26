@@ -1,6 +1,6 @@
 // Markdown 编辑器拦截 + 右键菜单 + 侵入式编辑
 // 支持 Live Preview 模式和 Reading Mode
-import { Menu, MarkdownView, Notice, Modal, TFile, Platform } from 'obsidian';
+import { Menu, MarkdownView, Notice, Modal, TFile, Platform, setIcon } from 'obsidian';
 import type { Editor, MarkdownPreviewView } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
@@ -293,6 +293,7 @@ export class MarkdownPatcher {
     if (this.observer) { this.observer.disconnect(); this.observer = null; }
     if (this.injectTimer) clearTimeout(this.injectTimer);
     this.removeTooltip();
+    this.hideMobileAnnotationCard();
   }
 
   /** debounce 300ms 后注入气泡 */
@@ -308,17 +309,20 @@ export class MarkdownPatcher {
 
   /**
    * 统一注入批注气泡：同时处理 Live Preview（.cm-content）和 Reading Mode（.markdown-preview-view）
-   * 查找所有 <mark> 元素，匹配批注数据后注入 data-fleur-annotation 属性 + 小气泡图标
+   * 查找所有 <mark> 元素，匹配批注数据后注入 data-fleur-annotation 属性 + 小气泡图标。
+   * id 注入面向全部批注（高亮/划线/批注）——移动端点按清除靠它做 O(1) 命中；
+   * 气泡图标仍只给带批注内容的（桌面 hover 展示批注，纯高亮没有可展示的内容）。
    */
   private async injectCommentBubbles() {
     const file = this.plugin.app.workspace.getActiveFile();
     if (!file) return;
 
     const data = await this.plugin.store.load(file.path);
-    // 查找所有有 comment 字段的批注（不只是 type === 'comment'，高亮也可能有批注）
-    const commentAnnotations = data.annotations.filter(a => a.comment);
+    const annotations = data.annotations.filter(a => !a.deletedAt);
+    // 带批注内容的才注入气泡图标
+    const commentAnnotations = annotations.filter(a => a.comment);
 
-    if (commentAnnotations.length === 0) return;
+    if (annotations.length === 0) return;
 
     // 查找编辑模式和阅读模式的所有 mark 元素
     const containers = document.querySelectorAll('.cm-content, .markdown-preview-view');
@@ -336,7 +340,7 @@ export class MarkdownPatcher {
         // 跳过非 annotation 来源的 <u>（如正文自带的下划线）
         const tag = mark.tagName.toLowerCase();
         if (tag === 'u') {
-          const isFleurUnderline = commentAnnotations.some(a => {
+          const isFleurUnderline = annotations.some(a => {
             if (a.type !== 'underline') return false;
             const aText = normalize(a.text?.trim() || '');
             return aText === normalize(mark.textContent || '') ||
@@ -350,7 +354,7 @@ export class MarkdownPatcher {
         const normalizedText = normalize(rawText);
 
 
-        const annotation = commentAnnotations.find(a => {
+        const annotation = annotations.find(a => {
           const aText = a.text?.trim();
           if (!aText) return false;
           const normalizedAText = normalize(aText);
@@ -376,6 +380,10 @@ export class MarkdownPatcher {
 
         markEl.dataset.fleurAnnotation = annotation.id;
         markEl.addClass('fleur-annotation-mark');
+
+        // 气泡图标只给带批注内容的（纯高亮/划线无可展示内容；
+        // 移动端点按清除对所有类型生效，靠上面的 data-fleur-annotation id）
+        if (!annotation.comment) return;
 
         // 创建小气泡图标
         const bubble = markEl.createEl('span');
@@ -785,6 +793,165 @@ export class MarkdownPatcher {
       if (annotationId) {
         this.deleteAnnotation(annotationId);
       }
+      return;
+    }
+    // 移动端：轻点已划文本 → 标注动作卡（查看批注内容 / 清除），对齐 fleurEpub showAnnotationActionSheet；
+    // 桌面不进入此分支，hover tooltip / 右键菜单行为不变
+    if (Platform.isMobile) this.onMobileTap(e, target);
+  }
+
+  // ════════════════════════════════════════════
+  //  移动端点按标注 → 动作卡（对齐 fleurEpub annquick：
+  //  纯高亮/划线 → 紧凑清除卡；带批注内容 → 内容 + 清除按钮。
+  //  给出明确选项，不直接擦除——对齐产品线「不直接擦除」决策）
+  // ════════════════════════════════════════════
+
+  private mAnnCard: HTMLElement | null = null;
+  private mAnnCardClose: (() => void) | null = null;
+
+  /** 移动端点击路由：命中 fleur 标注元素 → 弹动作卡 */
+  private onMobileTap(e: MouseEvent, target: HTMLElement) {
+    // 插件自身 UI / 弹窗 / 菜单内的点击不放行
+    if (target.closest('.fleur-mselbar, .fleur-ann-mcard, .fleur-ai-mobile, .fleur-annotation-tooltip, .modal-container, .menu, .suggestion-container')) return;
+    // 正在选段（长按拖手柄）时不干预
+    const sel = document.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    // 命中标注元素：mark / .cm-highlight / u（正文自带 u 无 id 且文本匹配不上，自然放行）
+    const hit = target.closest('mark, .cm-highlight, u, .fleur-annotation-bubble') as HTMLElement | null;
+    if (!hit) return;
+    // 不在笔记正文内（如弹窗里的展示区）不干预
+    if (!hit.closest('.markdown-source-view, .markdown-reading-view, .markdown-preview-view')) return;
+
+    const annotationId = hit.dataset.fleurAnnotation
+      || (hit.classList.contains('fleur-annotation-bubble') ? hit.dataset.fleurAnnotation : '');
+    const x = e.clientX;
+    const y = e.clientY;
+    if (annotationId) {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.showMobileAnnotationCard(annotationId, x, y);
+      return;
+    }
+    // 兜底：注入 debounce 未跑完时 DOM 上还没有 id → 按文本匹配（异步，坐标已捕获）
+    void this.resolveTapByText(hit, x, y);
+  }
+
+  /** 文本匹配兜底：normalize 双向包含 + occurrence 消歧（与 injectCommentBubbles 同策略） */
+  private async resolveTapByText(hit: HTMLElement, x: number, y: number) {
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file) return;
+    const data = await this.plugin.store.load(file.path);
+    const live = data.annotations.filter(a => !a.deletedAt && a.text);
+    if (live.length === 0) return;
+    const norm = (s: string) => s.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF]+/g, '').toLowerCase();
+    const rendered = norm(hit.textContent || '');
+    if (!rendered) return;
+    const candidates = live.filter(a => {
+      const t = norm(a.text!);
+      return rendered === t || rendered.includes(t) || t.includes(rendered);
+    });
+    if (candidates.length === 0) return;
+    // occurrence 消歧：命中元素是容器内同文本标注元素中的第几处
+    const container = hit.closest('.cm-content, .markdown-preview-view') ?? document.body;
+    let occ = 0;
+    for (const el of Array.from(container.querySelectorAll('mark, .cm-highlight, u'))) {
+      if (el === hit) break;
+      if (norm((el as HTMLElement).textContent || '') === rendered) occ++;
+    }
+    const ann = candidates[Math.min(occ, candidates.length - 1)];
+    if (ann) void this.showMobileAnnotationCard(ann.id, x, y);
+  }
+
+  /** 弹出移动端标注动作卡（点外部 / Esc 关闭） */
+  private async showMobileAnnotationCard(annotationId: string, x: number, y: number) {
+    this.hideMobileAnnotationCard();
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file) return;
+    const data = await this.plugin.store.load(file.path);
+    const ann = data.annotations.find(a => a.id === annotationId && !a.deletedAt);
+    if (!ann) return;
+
+    this.hideMobileSelectionBar();
+    const card = document.body.createDiv('fleur-ann-mcard');
+    this.mAnnCard = card;
+
+    // 带批注内容 → 展示内容（120 字截断 + 展开切换，与桌面 tooltip 同策略）
+    const comment = ann.comment ? stripMarkdown(ann.comment) : '';
+    if (comment) {
+      const MAX_CHARS = 120;
+      const isLong = comment.length > MAX_CHARS;
+      let expanded = false;
+      const textEl = card.createDiv('fleur-ann-mcard-text');
+      const render = () => textEl.setText(expanded ? comment : (isLong ? comment.slice(0, MAX_CHARS) + '...' : comment));
+      render();
+      if (isLong) {
+        const hint = card.createDiv('fleur-ann-mcard-toggle');
+        hint.setText('展开全文 ›');
+        hint.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          expanded = !expanded;
+          render();
+          hint.setText(expanded ? '收起 ▲' : '展开全文 ›');
+        });
+      }
+    }
+
+    // 清除按钮：按类型描述动作（微信读书式明确选项，不直接擦除）
+    const label = ann.type === 'highlight' ? '清除高亮' : ann.type === 'underline' ? '清除下划线' : '清除批注';
+    const btn = card.createDiv('fleur-ann-mcard-btn');
+    btn.setAttribute('aria-label', label);
+    setIcon(btn.createSpan('fleur-ann-mcard-icon'), 'eraser');
+    btn.createSpan('fleur-ann-mcard-label').setText(label);
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.hideMobileAnnotationCard();
+      void this.deleteAnnotation(ann.id);
+    });
+
+    // 定位到点按处附近（翻转防出屏），点外部 / Esc 关闭
+    this.placeMobileCard(card, x, y);
+    const outside = (ev: MouseEvent) => {
+      if (!card.contains(ev.target as Node)) this.hideMobileAnnotationCard();
+    };
+    const esc = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') this.hideMobileAnnotationCard();
+    };
+    this.mAnnCardClose = () => {
+      document.removeEventListener('click', outside, true);
+      document.removeEventListener('keydown', esc, true);
+    };
+    // 延迟挂载：当前这次点击已在传播中，立即挂会当场把自己关掉
+    window.setTimeout(() => {
+      document.addEventListener('click', outside, true);
+      document.addEventListener('keydown', esc, true);
+    }, 0);
+  }
+
+  /** 动作卡定位：默认出现在点按处下方，越界翻转、四边钳制 */
+  private placeMobileCard(card: HTMLElement, x: number, y: number) {
+    card.setCssStyles({ visibility: 'hidden', left: `${x}px`, top: `${y}px` });
+    window.requestAnimationFrame(() => {
+      const w = card.offsetWidth;
+      const h = card.offsetHeight;
+      const margin = 8;
+      let left = x - w / 2;
+      let top = y + 14;
+      if (left < margin) left = margin;
+      if (left + w > window.innerWidth - margin) left = window.innerWidth - margin - w;
+      if (top + h > window.innerHeight - margin) top = y - h - 14;
+      if (top < margin) top = margin;
+      card.setCssStyles({ left: `${left}px`, top: `${top}px`, visibility: '' });
+    });
+  }
+
+  private hideMobileAnnotationCard() {
+    if (this.mAnnCardClose) {
+      this.mAnnCardClose();
+      this.mAnnCardClose = null;
+    }
+    if (this.mAnnCard) {
+      this.mAnnCard.remove();
+      this.mAnnCard = null;
     }
   }
 

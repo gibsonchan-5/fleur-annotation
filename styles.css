@@ -1139,6 +1139,9 @@ body.is-mobile .fleur-ann-mcard {
   border-radius: 12px;
   box-shadow: var(--shadow-s);
   padding: 10px 12px 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
 body.is-mobile .fleur-ann-mcard-text {
   font-size: 14px;

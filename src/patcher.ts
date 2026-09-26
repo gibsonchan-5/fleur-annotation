@@ -786,6 +786,36 @@ export class MarkdownPatcher {
 
   private onClick(e: MouseEvent) {
     const target = e.target as HTMLElement;
+    // ── 移动端动作卡交互：全部走 document 捕获路径 ──
+    // 真机上 target 级 click 监听在触屏合成事件下不可达（实测卡片能弹出但按钮不响应，
+    // 而打开卡片走的就是这条捕获路径）；统一在此处理，按钮元素上不再挂监听。
+    const mBtn = target.closest?.('.fleur-ann-mcard-btn') as HTMLElement | null;
+    if (mBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const annId = mBtn.dataset['annId'];
+      this.hideMobileAnnotationCard();
+      if (annId) {
+        this.deleteAnnotation(annId).catch(err =>
+          new Notice(`清除失败：${err instanceof Error ? err.message : String(err)}`));
+      }
+      return;
+    }
+    const mToggle = target.closest?.('.fleur-ann-mcard-toggle') as HTMLElement | null;
+    if (mToggle) {
+      e.stopPropagation();
+      const card = mToggle.closest('.fleur-ann-mcard') as HTMLElement | null;
+      const comment = card?.dataset['comment'] ?? '';
+      const textEl = card?.querySelector('.fleur-ann-mcard-text');
+      if (card && textEl) {
+        const expanded = card.dataset['expanded'] === '1';
+        const MAX_CHARS = 120;
+        textEl.textContent = expanded ? comment.slice(0, MAX_CHARS) + '...' : comment;
+        card.dataset['expanded'] = expanded ? '' : '1';
+        mToggle.setText(expanded ? '展开全文 ›' : '收起 ▲');
+      }
+      return;
+    }
     if (target.classList.contains('fleur-annotation-delete')) {
       e.preventDefault();
       e.stopPropagation();
@@ -872,57 +902,51 @@ export class MarkdownPatcher {
     if (!ann) return;
 
     this.hideMobileSelectionBar();
+    // 双保险：await load 的间隙里若又触发了一次打开，会残留旧卡——统一清掉
+    document.querySelectorAll('.fleur-ann-mcard').forEach(el => el.remove());
     const card = document.body.createDiv('fleur-ann-mcard');
     this.mAnnCard = card;
 
     // 带批注内容 → 展示内容（120 字截断 + 展开切换，与桌面 tooltip 同策略）
     const comment = ann.comment ? stripMarkdown(ann.comment) : '';
     if (comment) {
+      card.dataset['comment'] = comment;
       const MAX_CHARS = 120;
       const isLong = comment.length > MAX_CHARS;
-      let expanded = false;
       const textEl = card.createDiv('fleur-ann-mcard-text');
-      const render = () => textEl.setText(expanded ? comment : (isLong ? comment.slice(0, MAX_CHARS) + '...' : comment));
-      render();
+      textEl.setText(isLong ? comment.slice(0, MAX_CHARS) + '...' : comment);
       if (isLong) {
-        const hint = card.createDiv('fleur-ann-mcard-toggle');
-        hint.setText('展开全文 ›');
-        hint.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          expanded = !expanded;
-          render();
-          hint.setText(expanded ? '收起 ▲' : '展开全文 ›');
-        });
+        // 展开/收起交互在 onClick 捕获路径处理（真机 target 级监听不可靠）
+        card.createDiv('fleur-ann-mcard-toggle').setText('展开全文 ›');
       }
     }
 
-    // 清除按钮：按类型描述动作（微信读书式明确选项，不直接擦除）
+    // 清除按钮：按类型描述动作（微信读书式明确选项，不直接擦除）。
+    // 按钮上不挂监听——点击统一由 onClick 捕获路径按 data-ann-id 分发
     const label = ann.type === 'highlight' ? '清除高亮' : ann.type === 'underline' ? '清除下划线' : '清除批注';
     const btn = card.createDiv('fleur-ann-mcard-btn');
+    btn.dataset['annId'] = ann.id;
     btn.setAttribute('aria-label', label);
     setIcon(btn.createSpan('fleur-ann-mcard-icon'), 'eraser');
     btn.createSpan('fleur-ann-mcard-label').setText(label);
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      this.hideMobileAnnotationCard();
-      void this.deleteAnnotation(ann.id);
-    });
 
     // 定位到点按处附近（翻转防出屏），点外部 / Esc 关闭
     this.placeMobileCard(card, x, y);
-    const outside = (ev: MouseEvent) => {
+    // 点外部关闭：pointerdown 捕获（fleurEpub mountAnnPopupClose 同款鼠标语义）。
+    // pointerdown 先于 click 合成，与按钮的 click 处理零耦合，互不干扰
+    const outside = (ev: Event) => {
       if (!card.contains(ev.target as Node)) this.hideMobileAnnotationCard();
     };
     const esc = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') this.hideMobileAnnotationCard();
     };
     this.mAnnCardClose = () => {
-      document.removeEventListener('click', outside, true);
+      document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', esc, true);
     };
-    // 延迟挂载：当前这次点击已在传播中，立即挂会当场把自己关掉
+    // 延迟挂载：打开卡片的那次手势尚未结束，立即挂会当场把自己关掉
     window.setTimeout(() => {
-      document.addEventListener('click', outside, true);
+      document.addEventListener('pointerdown', outside, true);
       document.addEventListener('keydown', esc, true);
     }, 0);
   }

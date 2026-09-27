@@ -303,6 +303,67 @@ console.log('\n═══ 测试 5：移动端点按标注 → 清除动作卡（
 	(obsidian.Platform as any).isMobile = false;
 }
 
+console.log('\n═══ 测试 7：删除定位（occurrence 感知 + 分段解包 + 注入配对）═══');
+{
+	function mkPlugin() {
+		const p = makeMockPlugin();
+		p.app.workspace.getActiveFile = () => ({ path: 'test.md' }) as any;
+		p.refreshSidebar = () => {};
+		p.store = {
+			load: async () => ({ annotations: [] }),
+			deleteAnnotation: async () => {},
+		};
+		return p;
+	}
+	// ─ tryUnwrap：同文本多处高亮，occurrence 定位到正确的那一处 ─
+	const patcher = new MarkdownPatcher(mkPlugin());
+	const dupContent = '前文 ==重复文本== 中段 ==重复文本== 后文';
+	const mkAnn = (occurrence: number) => ({ type: 'highlight', text: '重复文本', occurrence });
+	const unwrap = (content: string, ann: any) => (patcher as any).tryUnwrap(content, ann, ann.occurrence ?? 0);
+
+	const r0 = unwrap(dupContent, mkAnn(0));
+	assert(r0 === '前文 重复文本 中段 ==重复文本== 后文', 'occurrence=0 解包第一处（首处高亮清除正确）');
+	const r1 = unwrap(dupContent, mkAnn(1));
+	assert(r1 === '前文 ==重复文本== 中段 重复文本 后文', 'occurrence=1 解包第二处（第二处清除不再错剥首处——真机「清除后高亮仍在」根因）');
+	const r2 = unwrap(dupContent, mkAnn(5));
+	assert(r2 === dupContent, 'occurrence 越界不改源码（宁可不剥也不错剥）');
+
+	// ─ 分段包裹解包（创建端 wrapSegmented 的跨段/跨标记产物）──
+	const segContent = '开头 ==甲段内容==\n\n==乙段内容== 结尾';
+	const segAnn = { type: 'highlight', text: '甲段内容 乙段内容', occurrence: 0 };
+	const rs = unwrap(segContent, segAnn);
+	assert(rs === '开头 甲段内容\n\n乙段内容 结尾', '跨段分段高亮整窗解包（两处 == 同时移除）');
+
+	// ─ 注入配对：同文本两条批注按文档顺序分配 id（与删除端 occurrence 闭环）──
+	(obsidian.Platform as any).isMobile = true;
+	{
+		dom.window.getSelection()!.removeAllRanges();
+		const plugin = mkPlugin();
+		plugin.store = {
+			load: async () => ({
+				annotations: [
+					{ id: 'd1', type: 'highlight', text: '重复文本', createdAt: 1, updatedAt: 1, occurrence: 0 },
+					{ id: 'd2', type: 'highlight', text: '重复文本', createdAt: 2, updatedAt: 2, occurrence: 1 },
+				],
+			}),
+			deleteAnnotation: async (_p: string, id: string) => { deleted.push(id); },
+		} as any;
+		const p2 = new MarkdownPatcher(plugin);
+		p2.install();
+		const view = document.createElement('div');
+		view.className = 'markdown-preview-view';
+		view.innerHTML = '<p><mark>重复文本</mark> 正文 <mark>重复文本</mark></p>';
+		document.body.appendChild(view);
+		await sleep(450);
+		const marks = view.querySelectorAll('mark');
+		assert(marks[0].getAttribute('data-fleur-annotation') === 'd1', '同文本第 1 处 mark 配对 occurrence=0 的批注');
+		assert(marks[1].getAttribute('data-fleur-annotation') === 'd2', '同文本第 2 处 mark 配对 occurrence=1 的批注');
+		view.remove();
+		p2.uninstall();
+	}
+	(obsidian.Platform as any).isMobile = false;
+}
+
 console.log('\n═══ 测试 6：styles.css 移动端块作用域 ═══');
 {
 	const fs = await import('fs');

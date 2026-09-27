@@ -248,6 +248,8 @@ export class MarkdownPatcher {
   private mSelTimer: ReturnType<typeof setTimeout> | null = null;
   /** 选区文本快照：工具条点击时选区可能已塌缩，用快照兜底（对齐 fleurEpub selSnapshot） */
   private mSelSnapshot = '';
+  /** 快照选区在阅读模式下是同文本的第几处（0-based），供创建/删除闭环定位 */
+  private mSelOccurrence = 0;
   private mSelBar: HTMLElement | null = null;
 
   constructor(private plugin: FleurAnnotationPlugin) {}
@@ -336,7 +338,16 @@ export class MarkdownPatcher {
       // Reading Mode: <mark> / <u>；Live Preview: <mark> / .cm-highlight / <u>
       const marks = container.querySelectorAll('mark, .cm-highlight, u[style], u:not([style])');
 
+      // 同文本多处标注：按文档顺序（DOM 顺序）逐个消费配对队列，
+      // 使第 k 处 mark 拿到第 k 条批注的 id（与删除端的 occurrence 定位闭环）
+      const usedIds = new Set<string>();
+      const byOcc = (x: Annotation, y: Annotation) =>
+        ((x as any).occurrence ?? 0) - ((y as any).occurrence ?? 0) || (x.createdAt ?? 0) - (y.createdAt ?? 0);
+
       marks.forEach(mark => {
+        // 已注入过则跳过（必须先于配对消费，避免重跑时重复占用队列）
+        if ((mark as HTMLElement).dataset.fleurAnnotation) return;
+
         // 跳过非 annotation 来源的 <u>（如正文自带的下划线）
         const tag = mark.tagName.toLowerCase();
         if (tag === 'u') {
@@ -353,31 +364,25 @@ export class MarkdownPatcher {
         const rawText = mark.textContent || '';
         const normalizedText = normalize(rawText);
 
-
-        const annotation = annotations.find(a => {
-          const aText = a.text?.trim();
-          if (!aText) return false;
-          const normalizedAText = normalize(aText);
-          const match = normalizedText === normalizedAText ||
-                 normalizedText.includes(normalizedAText) ||
-                 normalizedAText.includes(normalizedText);
-          if (match) {
-
-          }
-          return match;
-        });
+        // 优先精确匹配；无精确时回退双向包含。同文本多条按 occurrence 顺序取未消费的第一条
+        const exact = annotations
+          .filter(a => normalize(a.text?.trim() || '') === normalizedText)
+          .sort(byOcc);
+        const pool = exact.length > 0 ? exact
+          : annotations
+              .filter(a => {
+                const n = normalize(a.text?.trim() || '');
+                if (!n) return false;
+                return n.includes(normalizedText) || normalizedText.includes(n);
+              })
+              .sort(byOcc);
+        const annotation = pool.find(a => !usedIds.has(a.id));
         if (!annotation) {
-
           return;
         }
+        usedIds.add(annotation.id);
 
         const markEl = mark as HTMLElement;
-        // 已注入过则跳过
-        if (markEl.dataset.fleurAnnotation) {
-
-          return;
-        }
-
         markEl.dataset.fleurAnnotation = annotation.id;
         markEl.addClass('fleur-annotation-mark');
 
@@ -496,6 +501,8 @@ export class MarkdownPatcher {
       return;
     }
     this.mSelSnapshot = text;
+    // 快照时选区一定存活，此时推断同文本第几处（阅读模式）；点按钮时选区可能已塌缩，不能延后推断
+    this.mSelOccurrence = getReadingModeOccurrence(text);
     // 防闪烁：工具条已在显示（selectionchange 连发）→ 仅刷新快照，不拆建
     if (this.mSelBar) return;
     this.showMobileSelectionBar();
@@ -529,18 +536,18 @@ export class MarkdownPatcher {
     press(dot);
     dot.addEventListener('click', () => {
       this.hideMobileSelectionBar();
-      void this.useMobileSelection((sel, view, inReading) =>
-        this.addHighlight(sel, inReading ? null : view, inReading));
+      void this.useMobileSelection((sel, view, inReading, occurrence) =>
+        this.addHighlight(sel, inReading ? null : view, inReading, occurrence));
     });
     bar.createDiv('fleur-mselbar-sep');
 
     mkBtn('U', '添加划线', () => {
-      void this.useMobileSelection((sel, view, inReading) =>
-        this.addUnderline(sel, inReading ? null : view, inReading));
+      void this.useMobileSelection((sel, view, inReading, occurrence) =>
+        this.addUnderline(sel, inReading ? null : view, inReading, occurrence));
     });
     mkBtn('✎', '添加批注', () => {
-      this.useMobileSelection((sel, view, inReading) =>
-        this.showCommentModal(sel, inReading ? null : view, inReading));
+      this.useMobileSelection((sel, view, inReading, occurrence) =>
+        this.showCommentModal(sel, inReading ? null : view, inReading, occurrence));
     });
     bar.createDiv('fleur-mselbar-sep');
     mkBtn('AI', 'AI 解释', () => {
@@ -572,7 +579,7 @@ export class MarkdownPatcher {
   }
 
   /** 工具条按钮公共入口：取当前活动视图与模式，把快照文本分发给批注 API；无活动笔记则忽略 */
-  private useMobileSelection(fn: (sel: string, editor: Editor | null, inReadingMode: boolean) => void): void {
+  private useMobileSelection(fn: (sel: string, editor: Editor | null, inReadingMode: boolean, occurrence: number) => void): void {
     const view = this.getActiveView();
     const sel = this.mSelSnapshot;
     if (!sel.trim()) return;
@@ -581,7 +588,7 @@ export class MarkdownPatcher {
       return;
     }
     const inReading = view.getMode() === 'preview';
-    fn(sel, inReading ? null : view.editor, inReading);
+    fn(sel, inReading ? null : view.editor, inReading, this.mSelOccurrence);
   }
 
   /** Reading Mode 下的自定义右键菜单（拦截原生菜单） */
@@ -1806,17 +1813,21 @@ export class MarkdownPatcher {
 
     const view = this.getActiveView();
     const editor = view?.editor;
+    const occurrence = (annotation as any).occurrence ?? 0;
+    let removedFromDoc = false;
 
     if (editor) {
       const content = editor.getValue();
-      const updated = this.tryUnwrap(content, annotation);
+      const updated = this.tryUnwrap(content, annotation, occurrence);
       if (updated !== content) {
         editor.setValue(updated);
+        removedFromDoc = true;
       }
     } else {
       const content = await this.plugin.app.vault.read(file);
-      const updated = this.tryUnwrap(content, annotation);
+      const updated = this.tryUnwrap(content, annotation, occurrence);
       if (updated !== content) {
+        removedFromDoc = true;
         await this.plugin.app.vault.modify(file, updated);
         const leaves = this.plugin.app.workspace.getLeavesOfType('markdown');
         const leaf = leaves.find(l => (l.view as any)?.file?.path === file.path);
@@ -1829,19 +1840,22 @@ export class MarkdownPatcher {
 
     await this.plugin.store.deleteAnnotation(file.path, annotationId);
     this.plugin.refreshSidebar();
-    new Notice('已删除批注');
+    // 源码标记未能移除时如实提示（如同文本多处/分段高亮定位失败），便于真机诊断
+    new Notice(removedFromDoc ? '已删除批注' : '已删除批注记录，未能在文档中定位标注标记');
   }
 
-  /** 尝试移除标注包裹，带多级回退 */
-  private tryUnwrap(content: string, annotation: { type: string; text: string; color?: string; comment?: string }): string {
-    const result = this.buildUnwrapRegex(content, annotation, annotation.text);
+  /** 尝试移除标注包裹，带多级回退；occurrence 用于同文本多处标注的定位（0-based） */
+  private tryUnwrap(content: string, annotation: { type: string; text: string; color?: string; comment?: string }, occurrence = 0): string {
+    const result = this.buildUnwrapRegex(content, annotation, annotation.text, occurrence);
     if (result !== null && result !== content) return result;
 
-    // 回退 1：精确字符串移除
+    // 回退 1：精确字符串移除（第 occurrence 处）
     const patterns = this.getDeletePatterns(annotation);
     for (const p of patterns) {
-      if (content.includes(p)) {
-        return content.replace(p, p.startsWith('==') && p.endsWith('%%') ? annotation.text : '');
+      const idx = findNthIndex(content, p, occurrence + 1);
+      if (idx !== -1) {
+        const replacement = p.startsWith('==') && p.endsWith('%%') ? annotation.text : '';
+        return content.substring(0, idx) + replacement + content.substring(idx + p.length);
       }
     }
 
@@ -1853,27 +1867,90 @@ export class MarkdownPatcher {
       }
     }
 
-    // 回退 3：移除标注文本本身（最后的兜底）
-    if (content.includes(annotation.text)) {
-      return content.replace(annotation.text, '');
+    // 回退 3：移除标注文本本身（最后的兜底，第 occurrence 处）
+    const textIdx = findNthIndex(content, annotation.text, occurrence + 1);
+    if (textIdx !== -1) {
+      return content.substring(0, textIdx) + content.substring(textIdx + annotation.text.length);
     }
 
     // 回退 4：源文件含 **bold** 等 Markdown 标记，annotation.text 是纯文本
-    // 扫描所有 ==...== 段，剥离内联 Markdown 后与 annotation.text 比较
+    // 扫描所有 ==...== 段，剥离内联 Markdown 后与 annotation.text 比较（第 occurrence 个相等段）
     if (annotation.type === 'highlight') {
       const stripped = this.stripInlineMarkdown(annotation.text);
       const regex = /==([^=]+)==/g;
       let match: RegExpExecArray | null;
+      let seen = 0;
       while ((match = regex.exec(content)) !== null) {
         const inner = match[1];
         if (this.stripInlineMarkdown(inner) === stripped) {
-          // 匹配成功：移除 == 标记，保留内部原始内容（含 ** 等）
-          return content.substring(0, match.index) + inner + content.substring(match.index + match[0].length);
+          if (seen === occurrence) {
+            return content.substring(0, match.index) + inner + content.substring(match.index + match[0].length);
+          }
+          seen++;
         }
       }
     }
 
+    // 回退 5：分段包裹解包——创建端 wrapSegmented 对跨段落/跨标记选区产生多个 ==seg==，
+    // 单对正则无法匹配，这里在文档顺序上找连续 ==段== 窗口，拼接后与标注文本相等即整窗解包
+    if (annotation.type === 'highlight') {
+      const seg = this.unwrapSegmentedHighlight(content, annotation.text, occurrence);
+      if (seg !== null) return seg;
+    }
+
     return content;
+  }
+
+  /**
+   * 分段包裹解包：找出文档顺序上连续的 ==seg== 窗口，各段剥离内联标记并去空白后
+   * 拼接等于标注文本（剥离+去空白），则整窗解包。第 occurrence 个这样的窗口生效。
+   */
+  private unwrapSegmentedHighlight(content: string, annotationText: string, occurrence: number): string | null {
+    const target = this.stripInlineMarkdown(annotationText).replace(/\s+/g, '');
+    if (!target) return null;
+    const regex = /==([^=]+)==/g;
+    const matches: { start: number; end: number; inner: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(content)) !== null) {
+      matches.push({ start: m.index, end: m.index + m[0].length, inner: m[1] });
+    }
+    if (matches.length < 2) return null;
+
+    let windowCount = 0;
+    for (let i = 0; i < matches.length; i++) {
+      let acc = '';
+      for (let j = i; j < matches.length; j++) {
+        acc += this.stripInlineMarkdown(matches[j].inner).replace(/\s+/g, '');
+        if (acc === target) {
+          if (windowCount === occurrence) {
+            // 从后往前解包，避免位置偏移
+            let out = content;
+            for (let k = j; k >= i; k--) {
+              out = out.substring(0, matches[k].start) + matches[k].inner + out.substring(matches[k].end);
+            }
+            return out;
+          }
+          windowCount++;
+          break;
+        }
+        if (acc.length > target.length) break;
+      }
+    }
+    return null;
+  }
+
+  /** 全局正则的第 nth（0-based）处替换；匹配次数不足返回 null */
+  private replaceNth(content: string, regex: RegExp, nth: number, replacer: (m: RegExpExecArray) => string): string | null {
+    regex.lastIndex = 0;
+    let count = 0;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(content)) !== null) {
+      if (count === nth) {
+        return content.substring(0, m.index) + replacer(m) + content.substring(m.index + m[0].length);
+      }
+      count++;
+    }
+    return null;
   }
 
   /** 剥离内联 Markdown 标记（**、~~、`），用于删除时的模糊文本比较 */
@@ -1903,26 +1980,30 @@ export class MarkdownPatcher {
   }
 
   /**
-   * 用模糊匹配移除包裹标记，匹配失败时用精确匹配回退
+   * 用模糊匹配移除包裹标记，匹配失败时用精确匹配回退；均按 occurrence 定位（0-based），
+   * 匹配次数不足返回 null
    */
-  private unwrapFuzzy(content: string, wrappedPrefix: string, wrappedSuffix: string, annotationText: string): string {
+  private unwrapFuzzy(content: string, wrappedPrefix: string, wrappedSuffix: string, annotationText: string, occurrence = 0): string | null {
     // 先尝试模糊匹配（处理空白差异）
     const parts = annotationText.trim().split(/\s+/).map(p => this.escapeRegex(p));
     const fuzzyText = parts.join('[\\s\\u00a0]*');  // 用 [\s\u00a0]* 匹配任意空白（包括不可见空格）
     const regex = new RegExp(`${this.escapeRegex(wrappedPrefix)}(${fuzzyText})${this.escapeRegex(wrappedSuffix)}`, 'g');
-
-    const result = content.replace(regex, (_match, captured: string) => captured);
-    if (result !== content) return result;
+    const result = this.replaceNth(content, regex, occurrence, (m) => m[1]);
+    if (result !== null) return result;
 
     // 回退：精确匹配（处理特殊情况）
     const exactWrapped = `${wrappedPrefix}${annotationText}${wrappedSuffix}`;
-    return content.replace(exactWrapped, annotationText);
+    const idx = findNthIndex(content, exactWrapped, occurrence + 1);
+    if (idx !== -1) {
+      return content.substring(0, idx) + annotationText + content.substring(idx + exactWrapped.length);
+    }
+    return null;
   }
 
-  /** 用模糊空白匹配构建正则，移除高亮/划线/批注包裹 */
-  private buildUnwrapRegex(content: string, annotation: { type: string; text: string; color?: string; comment?: string }, _plainText: string): string | null {
+  /** 用模糊空白匹配构建正则，移除高亮/划线/批注包裹（第 occurrence 处） */
+  private buildUnwrapRegex(content: string, annotation: { type: string; text: string; color?: string; comment?: string }, _plainText: string, occurrence = 0): string | null {
     if (annotation.type === 'highlight') {
-      return this.unwrapFuzzy(content, '==', '==', annotation.text);
+      return this.unwrapFuzzy(content, '==', '==', annotation.text, occurrence);
     }
 
     if (annotation.type === 'underline') {
@@ -1930,15 +2011,21 @@ export class MarkdownPatcher {
       const fuzzyText = parts.join('[\\s\\u00a0]*');
       // 兼容裸 <u> 和带 style 的 <u style="color:...">
       const regex = new RegExp(`<u(?:\\s+style="[^"]*")?>[\\s\\u00a0]*(${fuzzyText})[\\s\\u00a0]*</u>`, 'g');
-      const r1 = content.replace(regex, (_m, c: string) => c);
-      if (r1 !== content) return r1;
+      const r1 = this.replaceNth(content, regex, occurrence, (m) => m[1]);
+      if (r1 !== null) return r1;
       // 回退：精确匹配（裸 <u>）
       const exactWrapped1 = `<u>${annotation.text}</u>`;
-      const r2 = content.replace(exactWrapped1, annotation.text);
-      if (r2 !== content) return r2;
+      const idx1 = findNthIndex(content, exactWrapped1, occurrence + 1);
+      if (idx1 !== -1) {
+        return content.substring(0, idx1) + annotation.text + content.substring(idx1 + exactWrapped1.length);
+      }
       // 回退：精确匹配（带 style）
       const exactWrapped2 = `<u style="color:${annotation.color || '#E8590C'}">${annotation.text}</u>`;
-      return content.replace(exactWrapped2, annotation.text);
+      const idx2 = findNthIndex(content, exactWrapped2, occurrence + 1);
+      if (idx2 !== -1) {
+        return content.substring(0, idx2) + annotation.text + content.substring(idx2 + exactWrapped2.length);
+      }
+      return null;
     }
 
     if (annotation.type === 'comment') {
@@ -1946,23 +2033,29 @@ export class MarkdownPatcher {
 
       if (fuzzyComment) {
         const fuzzyText = this.makeFuzzyPattern(annotation.text).replace(/\\s\+/g, '[\\s\\u00a0]*');
-        // 带高亮的批注：==文本==%% 批注 %%
+        // 带高亮的批注：==文本==%% 批注 %%（第 occurrence 处）
         const regex1 = new RegExp(`==(${fuzzyText})==%%[\\s\\u00a0]*${fuzzyComment}[\\s\\u00a0]*%%`, 'g');
-        const r1 = content.replace(regex1, (_m, c: string) => c);
-        if (r1 !== content) return r1;
+        const r1 = this.replaceNth(content, regex1, occurrence, (m) => m[1]);
+        if (r1 !== null) return r1;
         // 不带高亮的批注：文本%% 批注 %%
         const regex2 = new RegExp(`(${fuzzyText})%%[\\s\\u00a0]*${fuzzyComment}[\\s\\u00a0]*%%`, 'g');
-        const r2 = content.replace(regex2, (_m, c: string) => c);
-        if (r2 !== content) return r2;
-        // 回退：精确匹配
+        const r2 = this.replaceNth(content, regex2, occurrence, (m) => m[1]);
+        if (r2 !== null) return r2;
+        // 回退：精确匹配（第 occurrence 处）
         const exact1 = `==${annotation.text}==%% ${annotation.comment} %%`;
-        const r3 = content.replace(exact1, annotation.text);
-        if (r3 !== content) return r3;
+        const idx1 = findNthIndex(content, exact1, occurrence + 1);
+        if (idx1 !== -1) {
+          return content.substring(0, idx1) + annotation.text + content.substring(idx1 + exact1.length);
+        }
         const exact2 = `${annotation.text}%% ${annotation.comment} %%`;
-        return content.replace(exact2, annotation.text);
+        const idx2 = findNthIndex(content, exact2, occurrence + 1);
+        if (idx2 !== -1) {
+          return content.substring(0, idx2) + annotation.text + content.substring(idx2 + exact2.length);
+        }
+        return null;
       }
       // 无批注内容，只移除 %% 包裹
-      return this.unwrapFuzzy(content, '==%%', '%%', annotation.text);
+      return this.unwrapFuzzy(content, '==%%', '%%', annotation.text, occurrence);
     }
 
     return content;

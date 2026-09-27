@@ -364,6 +364,54 @@ console.log('\n═══ 测试 7：删除定位（occurrence 感知 + 分段解
 	(obsidian.Platform as any).isMobile = false;
 }
 
+console.log('\n═══ 测试 8：删除按视图模式分流（阅读模式走 vault 重载）═══');
+{
+	function mkRoutePlugin(ann: any) {
+		const p = makeMockPlugin();
+		p.app.workspace.getActiveFile = () => ({ path: 'test.md' }) as any;
+		p.app.workspace.getLeavesOfType = () => [] as any;
+		p.refreshSidebar = () => {};
+		p.store = {
+			load: async () => ({ annotations: [ann] }),
+			deleteAnnotation: async (_path: string, id: string) => { deletedIds.push(id); },
+		};
+		return p;
+	}
+	const deletedIds: string[] = [];
+	const ann = { id: 'r1', type: 'highlight', text: '被高亮的文字', createdAt: 1, updatedAt: 1 };
+	const docWithMark = '正文前 ==被高亮的文字== 正文后';
+	const unwrapped = '正文前 被高亮的文字 正文后';
+	const run = async (mode: 'preview' | 'source') => {
+		const plugin = mkRoutePlugin(ann);
+		const editorCalls: string[] = [];
+		const fakeEditor = {
+			getValue: () => docWithMark,
+			setValue: (v: string) => { editorCalls.push(v); },
+		};
+		let modified: string | null = null;
+		plugin.app.vault.read = async () => docWithMark;
+		plugin.app.vault.modify = async (_f: any, data: string) => { modified = data; };
+		const patcher = new MarkdownPatcher(plugin);
+		(patcher as any).getActiveView = () => ({ editor: fakeEditor, getMode: () => mode });
+		await patcher.deleteAnnotation('r1');
+		return { editorCalls, get modified() { return modified; } };
+	};
+
+	// 阅读模式：editor 存在但休眠 → 必须走 vault.modify + setViewState，不碰 editor.setValue
+	{
+		const r = await run('preview');
+		assert(r.editorCalls.length === 0, '阅读模式下不写休眠 editor（真机「提示已删除而高亮仍在」根因）');
+		assert((r as any).modified === unwrapped, '阅读模式走 vault.modify 改写源码');
+		assert(deletedIds.includes('r1'), '阅读模式删除仍走墓碑链路');
+	}
+	// Live Preview / 源码模式：editor 即时生效
+	{
+		const r = await run('source');
+		assert(r.editorCalls.length === 1 && r.editorCalls[0] === unwrapped, 'Live Preview 模式走 editor.setValue 即时生效');
+		assert((r as any).modified === null, 'Live Preview 模式不绕道 vault');
+	}
+}
+
 console.log('\n═══ 测试 6：styles.css 移动端块作用域 ═══');
 {
 	const fs = await import('fs');

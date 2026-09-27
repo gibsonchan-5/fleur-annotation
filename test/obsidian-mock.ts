@@ -47,6 +47,28 @@ export class ItemView {}
 export class WorkspaceLeaf {}
 export class Component {}
 export class Plugin {}
+export class App {}
+export class PluginSettingTab {
+	constructor(_app: any, _plugin: any) {}
+}
+export class Setting {
+	constructor(_container?: any) {}
+	setName() { return this; }
+	setDesc() { return this; }
+	addToggle() { return this; }
+	addText() { return this; }
+	addDropdown() { return this; }
+	addButton() { return this; }
+	addExtraButton() { return this; }
+	addSlider() { return this; }
+	setHeading() { return this; }
+	setClass() { return this; }
+}
+export class DropdownComponent {
+	addOptions() { return this; }
+	setValue() { return this; }
+	onChange() { return this; }
+}
 
 export class MarkdownRenderer {
 	static render(): Promise<void> {

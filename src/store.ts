@@ -21,7 +21,7 @@ import type { Annotation, MarkdownAnnotationData, AIResult } from './types';
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** 损坏备份文件名：`<原名>.corrupt-<时间戳>` */
-const CORRUPT_BACKUP_RE = /\.corrupt-\d+\.json$/;
+export const CORRUPT_BACKUP_RE = /\.corrupt-\d+\.json$/;
 
 function isMissingFileError(e: unknown): boolean {
 	const msg = e instanceof Error ? e.message : String(e);

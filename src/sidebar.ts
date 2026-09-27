@@ -56,6 +56,15 @@ export class SidebarView extends ItemView {
   getIcon() { return 'feather'; }
 
   async onOpen() {
+    // 跟随当前笔记：切到另一篇笔记时自动刷新为该笔记的批注（此前不监听，
+    // 侧边栏停留在 onOpen 时的笔记上，移动端切笔记后表现为「批注没同步」）
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', () => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.path === this.lastFilePath) return;
+        void this.refreshAnnotations();
+      })
+    );
     await this.loadData();
     this.renderUI();
   }
@@ -65,11 +74,17 @@ export class SidebarView extends ItemView {
   /** 刷新侧边栏（重新加载数据并渲染） */
   async refresh() { await this.loadData(); this.renderUI(); }
 
+  private refreshSeq = 0;
   async refreshAnnotations() {
+    const seq = ++this.refreshSeq;
     // 删除操作可能触发了 view 重建，等一帧确保 DOM 就绪
     await new Promise(r => setTimeout(r, 50));
     await this.loadData();
+    if (seq !== this.refreshSeq) return; // 期间又有新刷新，丢弃本次渲染（防快速切笔记乱序）
     this.renderUI();
+    // leaf tab 标题只在创建时求值，跟随当前笔记更新（eState.title 是官方刷新途径）
+    const file = this.app.workspace.getActiveFile();
+    if (file) this.leaf.setEphemeralState({ title: file.basename });
   }
 
   private lastFilePath: string | null = null;

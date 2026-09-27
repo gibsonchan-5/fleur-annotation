@@ -507,6 +507,61 @@ export class AnnotationStore {
 		}
 	}
 
+	/**
+	 * 只读诊断：检查某篇笔记在两种模式下 sidecar 的实际落点与内容。
+	 * 用于跨设备同步排查——移动端读不到批注时是静默空（设计如此），
+	 * 该方法把「模式 / 期望路径 / 文件存在性 / 批注数 / 同步目录规模」一次报清。
+	 */
+	async diagnose(mdPath: string): Promise<string[]> {
+		const lines: string[] = [];
+		const vaultMode = this.isVaultMode();
+		const vaultPath = normalizePath(`${this.dataDir()}/${mdPath}.json`);
+		const legacyPath = normalizePath(`${this.baseDir()}/${this.hashPath(mdPath)}.json`);
+
+		lines.push(`模式: ${vaultMode ? 'Vault 同步（跨设备）' : '配置目录（本机）'}`);
+		lines.push(`数据目录: ${this.dataDir()}`);
+		lines.push(`笔记路径: ${mdPath}`);
+
+		const inspect = async (label: string, path: string): Promise<void> => {
+			try {
+				if (!(await this.app.vault.adapter.exists(path))) {
+					lines.push(`${label}: 文件不存在 → ${path}`);
+					return;
+				}
+				const data = this.parseOrNull<MarkdownAnnotationData>(await this.app.vault.adapter.read(path));
+				if (!data) {
+					lines.push(`${label}: 文件存在但内容非 JSON（损坏？）→ ${path}`);
+					return;
+				}
+				const alive = (data.annotations ?? []).filter(a => !(typeof a.deletedAt === 'number' && a.deletedAt > 0));
+				const tombs = (data.annotations ?? []).length - alive.length;
+				lines.push(`${label}: 存在，批注 ${alive.length} 条（墓碑 ${tombs}）→ ${path}`);
+			} catch (e) {
+				lines.push(`${label}: 读取出错 ${e instanceof Error ? e.message : String(e)} → ${path}`);
+			}
+		};
+		await inspect(vaultMode ? '当前模式 sidecar' : '对照·同步目录 sidecar', vaultPath);
+		await inspect(vaultMode ? '对照·配置目录 sidecar' : '当前模式 sidecar', legacyPath);
+
+		if (vaultMode) {
+			try {
+				// adapter.list 非递归，手动广度优先遍历统计全目录
+				let total = 0;
+				const queue = [this.dataDir()];
+				while (queue.length) {
+					const dir = queue.shift()!;
+					const listing = await this.app.vault.adapter.list(dir);
+					total += (listing.files ?? []).filter(f => f.endsWith('.json') && !CORRUPT_BACKUP_RE.test(f)).length;
+					queue.push(...(listing.folders ?? []));
+				}
+				lines.push(`同步目录 .json 文件数: ${total}${total === 0 ? '（同步器可能尚未把数据带到本机）' : ''}`);
+			} catch {
+				lines.push(`同步目录不可访问: ${this.dataDir()}（目录不存在？）`);
+			}
+		}
+		return lines;
+	}
+
 	/** hash 文件名 → 笔记路径（仅配置目录模式的存量 sidecar 有意义） */
 	async listLegacySidecars(): Promise<Array<{ file: string; fileId: string }>> {
 		const out: Array<{ file: string; fileId: string }> = [];

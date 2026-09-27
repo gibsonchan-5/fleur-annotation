@@ -1,5 +1,5 @@
 // 主入口
-import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu, Platform } from 'obsidian';
+import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu, Modal, App, Platform } from 'obsidian';
 import { SidebarView, VIEW_TYPE_FLEUR_NOTE } from './sidebar';
 import { MarkdownPatcher } from './patcher';
 import { AnnotationStore } from './store';
@@ -44,6 +44,21 @@ export default class FleurAnnotationPlugin extends Plugin {
       id: 'open-sidebar',
       name: '打开批注侧边栏',
       callback: () => this.activateSidebar()
+    });
+
+    // 只读同步诊断：报告当前笔记两种模式下 sidecar 的落点、存在性与批注数
+    this.addCommand({
+      id: 'sync-diagnose',
+      name: '同步诊断（当前笔记）',
+      callback: async () => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) {
+          new Notice('没有活动笔记');
+          return;
+        }
+        const lines = await this.store.diagnose(file.path);
+        new SyncDiagnoseModal(this.app, lines).open();
+      }
     });
 
     this.addSettingTab(new FleurSettingTab(this.app, this));
@@ -287,5 +302,40 @@ export default class FleurAnnotationPlugin extends Plugin {
 
   generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+}
+
+/** 同步诊断结果：纯文本可全选复制（移动端排查用） */
+class SyncDiagnoseModal extends Modal {
+  constructor(app: App, private lines: string[]) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl('h3', { text: 'FleurAnnotation 同步诊断' });
+    const pre = contentEl.createEl('pre');
+    pre.setCssStyles({
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-all',
+      userSelect: 'text',
+      webkitUserSelect: 'text',
+      fontSize: 'var(--font-ui-smaller)',
+      lineHeight: '1.6',
+      backgroundColor: 'var(--background-secondary)',
+      borderRadius: '8px',
+      padding: '10px 12px',
+      maxHeight: '50vh',
+      overflow: 'auto',
+    });
+    pre.setText(this.lines.join('\n'));
+    const hint = contentEl.createEl('p', {
+      text: '长按可全选复制以上内容。',
+    });
+    hint.setCssStyles({ color: 'var(--text-faint)', fontSize: 'var(--font-ui-smaller)' });
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }

@@ -1812,11 +1812,15 @@ export class MarkdownPatcher {
     if (!annotation) return;
 
     const view = this.getActiveView();
-    const editor = view?.editor;
     const occurrence = (annotation as any).occurrence ?? 0;
     let removedFromDoc = false;
 
-    if (editor) {
+    // 分流按视图模式：阅读模式（view.getMode() === 'preview'）下 editor 实例虽存在但休眠，
+    // editor.setValue 只改源码、阅读视图不重渲染（真机上表现为提示已删除而高亮仍在）——
+    // 必须走 vault.modify + setViewState 强制重载；Live Preview / 源码模式走 editor 即时生效
+    const inPreview = view?.getMode() === 'preview';
+    if (view?.editor && !inPreview) {
+      const editor = view.editor;
       const content = editor.getValue();
       const updated = this.tryUnwrap(content, annotation, occurrence);
       if (updated !== content) {

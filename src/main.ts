@@ -1,8 +1,9 @@
 // 主入口
-import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu, Modal, App, Platform } from 'obsidian';
+import { Plugin, WorkspaceLeaf, TFile, TFolder, TAbstractFile, Notice, MarkdownView, Menu, Modal, App, Platform, normalizePath } from 'obsidian';
 import { SidebarView, VIEW_TYPE_FLEUR_NOTE } from './sidebar';
 import { MarkdownPatcher } from './patcher';
-import { AnnotationStore } from './store';
+import { AnnotationStore, CORRUPT_BACKUP_RE } from './store';
+import type { MarkdownAnnotationData } from './types';
 import { FleurSettings, DEFAULT_SETTINGS, FleurSettingTab, LEGACY_DEFAULT_SYSTEM_PROMPT } from './settings';
 import {
   hydrateSecrets,
@@ -108,7 +109,86 @@ export default class FleurAnnotationPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       if (!Platform.isMobile) this.activateSidebar();
       void this.migrateToVaultDir();
+      void this.migrateOldSyncDir();
     });
+  }
+
+  /**
+   * 数据目录改名迁移（v1.3.5）：旧默认「FleurAnnotation 数据」（顶层独立目录）
+   * → 「FleurAnnotation/data」（数据与批注导出笔记共用 FleurAnnotation 文件夹，
+   * 与 FleurEpub 的 FleurEpub/data 结构同款，不再在根目录多占一个顶层条目）。
+   * 合并语义迁移：旧文件并集并入新目录对应文件后删除旧文件，最后清掉旧目录树。
+   * 幂等：以「旧目录是否存在」为条件，搬空即不再触发。
+   */
+  private async migrateOldSyncDir(): Promise<void> {
+    const OLD = 'FleurAnnotation 数据';
+    if (!this.settings.syncAnnotationsToVault) return;
+    const dataDir = this.settings.annotationsDataDir?.trim() || 'FleurAnnotation/data';
+    if (dataDir === OLD) return;
+    const adapter = this.app.vault.adapter;
+    const oldDir = normalizePath(OLD);
+    try {
+      if (!(await adapter.exists(oldDir))) return;
+      // 递归收集旧目录全部 .json（跳过损坏备份）
+      const files: string[] = [];
+      const queue = [oldDir];
+      while (queue.length) {
+        const dir = queue.shift()!;
+        const listing = await adapter.list(dir);
+        for (const f of listing.files ?? []) {
+          if (f.endsWith('.json') && !CORRUPT_BACKUP_RE.test(f)) files.push(f);
+        }
+        queue.push(...(listing.folders ?? []));
+      }
+      let moved = 0;
+      for (const f of files) {
+        // 旧目录内路径即镜像的笔记路径：去前缀与 .json 后缀还原 fileId
+        const fileId = f.slice(oldDir.length + 1, -'.json'.length);
+        let legacy: MarkdownAnnotationData | null = null;
+        try {
+          legacy = JSON.parse(await adapter.read(f)) as MarkdownAnnotationData;
+        } catch {
+          continue; // 损坏文件不迁移不删除，保守保留
+        }
+        const data = await this.store.load(fileId);
+        const ids = new Set(data.annotations.map(a => a.id));
+        for (const a of legacy.annotations ?? []) {
+          if (!ids.has(a.id)) {
+            data.annotations.push(a);
+            ids.add(a.id);
+            moved++;
+          }
+        }
+        const rids = new Set((data.aiResults ?? []).map(r => r.id));
+        for (const r of legacy.aiResults ?? []) {
+          if (!rids.has(r.id)) {
+            (data.aiResults ??= []).push(r);
+            rids.add(r.id);
+            moved++;
+          }
+        }
+        await this.store.save(data);
+        await adapter.remove(f);
+      }
+      // 从深到浅清理旧目录的空目录（非空即中止，保守）
+      const dirs: string[] = [];
+      const dq = [oldDir];
+      while (dq.length) {
+        const dir = dq.shift()!;
+        const listing = await adapter.list(dir);
+        dq.push(...(listing.folders ?? []));
+        dirs.push(dir);
+      }
+      for (const dir of dirs.reverse()) {
+        try {
+          const l = await adapter.list(dir);
+          if ((l.files?.length ?? 0) === 0 && (l.folders?.length ?? 0) === 0) await adapter.remove(dir);
+        } catch { /* 下次启动再试 */ }
+      }
+      if (moved > 0) new Notice(`FleurAnnotation：已迁移 ${moved} 条批注到 ${dataDir}`);
+    } catch (e) {
+      console.error('FleurAnnotation: 旧同步目录迁移失败', e);
+    }
   }
 
   /**
@@ -209,6 +289,13 @@ export default class FleurAnnotationPlugin extends Plugin {
       settings.customPrompts = [list[0] ?? '', list[1] ?? '', list[2] ?? ''];
     }
     this.settings = settings;
+
+    // 数据目录改名迁移（v1.3.5）：旧默认「FleurAnnotation 数据」→「FleurAnnotation/data」，
+    // 数据与批注导出笔记共用 FleurAnnotation 文件夹（FleurEpub 同款结构），根目录不再多一个顶层条目
+    if (this.settings.syncAnnotationsToVault && this.settings.annotationsDataDir === 'FleurAnnotation 数据') {
+      this.settings.annotationsDataDir = DEFAULT_SETTINGS.annotationsDataDir;
+      await this.saveSettings();
+    }
 
     // API Key 存入系统钥匙串；磁盘上若还留有明文，在这里迁走并清掉。
     // 用户切到 data.json 模式时则反其道行之：文件即真相，不写钥匙串。

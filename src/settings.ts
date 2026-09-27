@@ -62,7 +62,7 @@ export const DEFAULT_SETTINGS: FleurSettings = {
   noteFolder: 'FleurAnnotation',
   exportTags: 'fleur-annotation,批注导出',
   syncAnnotationsToVault: false,
-  annotationsDataDir: 'FleurAnnotation 数据',
+  annotationsDataDir: 'FleurAnnotation/data',
   sidebarPosition: 'right',
   sidebarDefaultOpen: true,
   annotationSort: 'line',
@@ -485,10 +485,10 @@ export class FleurSettingTab extends PluginSettingTab {
         }));
     const syncDirSetting = new Setting(containerEl)
       .setName('批注数据目录')
-      .setDesc('同步模式下批注数据在 Vault 内的存放目录（目录结构按笔记路径镜像）。改动后立即生效，旧目录中的数据会保留。')
+      .setDesc('同步模式下批注数据在 Vault 内的存放目录。默认放在批注导出文件夹 FleurAnnotation 下的 data 子目录（与 FleurEpub 的目录结构同款），不另建顶层文件夹。改动后立即生效，旧目录中的数据启动时自动并入新目录。')
       .addText(text => text
-        .setPlaceholder('FleurAnnotation 数据')
-        .setValue(this.plugin.settings.annotationsDataDir ?? 'FleurAnnotation 数据')
+        .setPlaceholder('FleurAnnotation/data')
+        .setValue(this.plugin.settings.annotationsDataDir ?? 'FleurAnnotation/data')
         .onChange(async (value) => {
           this.plugin.settings.annotationsDataDir = value.trim();
           await this.plugin.saveSettings();

@@ -1,5 +1,6 @@
-// 多端同步行为测试：合并写 / 墓碑防复活 / 损坏保护 / 路径镜像 / 双端并发模拟
+// 多端同步行为测试：合并写 / 墓碑防复活 / 损坏保护 / 路径镜像 / 双端并发模拟 / 旧同步目录迁移
 import { createRequire } from 'module';
+import { normalizePath } from 'obsidian';
 const { JSDOM } = createRequire(import.meta.url)('jsdom') as typeof import('jsdom');
 
 // ── jsdom 环境（store 只用到 document 一角，但 obsidian normalizePath 不依赖 DOM）──
@@ -41,8 +42,10 @@ class MemAdapter {
 			const rest = k.slice(p.length + 1);
 			direct.add(rest.includes('/') ? p + '/' + rest.split('/')[0] : k);
 		}
-		const files = [...direct].filter((x) => !this.files.has(x + '/') || x.includes('.'));
-		const folders = [...direct].filter((x) => this.files.has(x + '/') && !x.includes('.json'));
+		// 目录判定：有任何键以它为前缀（或显式 mkdir 键）即为目录
+		const isDir = (x: string) => this.files.has(x + '/') || all.some((k) => k.startsWith(x + '/'));
+		const files = [...direct].filter((x) => !isDir(x));
+		const folders = [...direct].filter(isDir);
 		return { files, folders };
 	}
 }
@@ -213,6 +216,63 @@ console.log('\n═══ 6. 开关关闭 = 原行为 ═══');
 	assert(adapter.files.has(expected), '关闭开关时走旧 hash 路径（零影响）');
 	const got = await store.load(NOTE);
 	assert(got.annotations.length === 1, '读写正常');
+}
+
+console.log('\n═══ 7. 旧同步目录迁移（FleurAnnotation 数据 → FleurAnnotation/data）═══');
+{
+	const adapter = new MemAdapter();
+	const app = makeApp(adapter);
+	const OLD = 'FleurAnnotation 数据';
+	const NOTE_B = '示例笔记本/2026-01-01/示例文章：甲、乙、丙的“存废之争”.md';
+	// 旧目录：笔记 A 两条批注（一条与新目录重叠）、笔记 B 一条批注 + 一条 AI 结果
+	await adapter.write(
+		normalizePath(`${OLD}/${NOTE}.json`),
+		JSON.stringify({
+			fileId: NOTE,
+			annotations: [mkAnn('A'), { ...mkAnn('OLD1'), createdAt: 1700000000010, updatedAt: 1700000000010 }],
+		}),
+	);
+	await adapter.mkdir(normalizePath(OLD + '/示例笔记本'));
+	await adapter.write(
+		normalizePath(`${OLD}/${NOTE_B}.json`),
+		JSON.stringify({
+			fileId: NOTE_B,
+			annotations: [mkAnn('B')],
+			aiResults: [{ id: 'AI1', prompt: 'p', result: 'r', createdAt: 1700000000000, updatedAt: 1700000000000 }],
+		}),
+	);
+	// 新目录：笔记 A 已有一条批注（与旧目录的 A 重叠）——验证并集不重复
+	const settings = { syncAnnotationsToVault: true, annotationsDataDir: 'FleurAnnotation/data' };
+	const store = new AnnotationStore(app, 'fleur-annotation', () => settings);
+	await store.addAnnotation(NOTE, mkAnn('A'));
+
+	const notices: string[] = [];
+	const plugin: any = {
+		settings,
+		app,
+		store,
+		saveSettings: async () => {},
+	};
+	const { default: main } = await import('../src/main');
+	const proto = main.prototype;
+	await proto.migrateOldSyncDir.call(plugin);
+
+	const merged = await store.load(NOTE);
+	assert(merged.annotations.length === 2, `重叠并集：A 笔记应为 2 条批注（旧 2 条含 1 重叠，实际 ${merged.annotations.length}）`);
+	assert(merged.annotations.some(a => a.id === 'OLD1'), '旧目录独有的 OLD1 批注已并入');
+	const migratedB = await store.load(NOTE_B);
+	assert(migratedB.annotations.length === 1 && (migratedB.aiResults?.length ?? 0) === 1, 'B 笔记批注与 AI 结果都已迁入');
+	assert(
+		adapter.files.has(normalizePath(`FleurAnnotation/data/${NOTE_B}.json`)),
+		'新目录按笔记路径镜像落位',
+	);
+	assert(!adapter.files.has(normalizePath(`${OLD}/${NOTE}.json`)), '迁移成功后旧文件已删除');
+	const oldList = await adapter.list(normalizePath(OLD));
+	assert((oldList.files?.length ?? 0) === 0, '旧目录已清空');
+	// 幂等：旧目录不存在时直接 return，不抛错
+	settings.annotationsDataDir = 'FleurAnnotation/data';
+	await proto.migrateOldSyncDir.call({ settings, app, store } as any);
+	assert(true, '旧目录不存在时迁移幂等返回（不抛错）');
 }
 
 console.log(`\n═══════ 结果：${passed} 通过，${failures.length} 失败 ═══════`);

@@ -1062,7 +1062,9 @@ export class MarkdownPatcher {
         });
 
       } else {
-
+        // 匹配失败：不写入批注，否则侧边栏出现幻影条目而正文永远无法渲染高亮
+        new Notice('FleurAnnotation：未能在原文中定位所选文本，未添加高亮');
+        return;
       }
     } else if (editor) {
       if (!wrapSelection(editor, '==', '==')) return;
@@ -1108,6 +1110,9 @@ export class MarkdownPatcher {
           type: 'markdown',
           state: { file: file.path, mode: 'preview' }
         });
+      } else {
+        new Notice('FleurAnnotation：未能在原文中定位所选文本，未添加划线');
+        return;
       }
     } else if (editor) {
       if (!wrapSelection(editor, wrapPrefix, wrapSuffix)) return;
@@ -1154,6 +1159,9 @@ export class MarkdownPatcher {
           type: 'markdown',
           state: { file: file.path, mode: 'preview' }
         });
+      } else {
+        new Notice('FleurAnnotation：未能在原文中定位所选文本，未添加批注');
+        return;
       }
     } else if (editor) {
       // Live Preview: ==选中文本==%% 批注 %%

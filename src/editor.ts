@@ -275,6 +275,34 @@ export function findAndReplace(
     }
   }
 
+  // 7. 转义容忍匹配：剪藏/导入笔记常把脚注、符号写成 \[1\] 等转义形式，
+  //    阅读模式渲染后用户选中的是未转义文本（[1]），导致前面所有步骤都无法命中。
+  //    对 Markdown 可转义字符允许可选的前置反斜杠，空白容忍为 \s+。
+  {
+    const ESCAPABLE = new Set('\\`*_{}[]()#+-.!~>|<');
+    let pattern = '';
+    for (const ch of cleanedSearch) {
+      if (/\s/.test(ch)) {
+        pattern += '\\s+';
+      } else if (ESCAPABLE.has(ch)) {
+        // 正则层面 \\? = 可选的反斜杠（字符串需写 \\\\?）
+        pattern += `\\\\?${escapeRegex(ch)}`;
+      } else {
+        pattern += escapeRegex(ch);
+      }
+    }
+    const regex = new RegExp(pattern, 'g');
+    let seen = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(content)) !== null) {
+      if (seen === occurrence) {
+        return content.substring(0, match.index) + wrapFn(match[0]) + content.substring(match.index + match[0].length);
+      }
+      seen++;
+      if (match[0].length === 0) regex.lastIndex++; // 防空匹配死循环
+    }
+  }
+
   return null;
 }
 

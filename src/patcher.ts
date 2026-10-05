@@ -5,7 +5,7 @@ import type { Editor, MarkdownPreviewView } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
-import { wrapSelection, appendToSelection, findAndReplace, findNthIndex, wrapSegmented, getBodyStartOffset, getReadingModeSelection, getReadingModeOccurrence, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex } from './editor';
+import { wrapSelection, appendToSelection, findAndReplace, findNthIndex, wrapSegmented, getBodyStartOffset, getReadingModeSelection, getReadingModeOccurrence, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex, normalizeText } from './editor';
 
 // ═══════════════════════════════════════════
 //  定位辅助：文本归一化 / 多级匹配 / 滚动容器
@@ -990,6 +990,30 @@ export class MarkdownPatcher {
   //  侵入式编辑
   // ════════════════════════════════════════════
 
+  /**
+   * 把 occurrence 钳制到正文（跳过 frontmatter）内的实际出现范围。
+   * 阅读模式的 occurrence 由 DOM 文本流推断，属性面板 description 复述导语等
+   * 渲染层重复可能把它推高到超出正文出现数，findAndReplace 必然失败
+   * （弹「未能在原文中定位所选文本」）。正文内不存在第 N 处时，钳到最后一处。
+   */
+  private clampOccurrenceToBody(content: string, selection: string, occurrence: number): number {
+    const body = content.slice(getBodyStartOffset(content));
+    const count = (haystack: string, needle: string): number => {
+      if (!needle) return 0;
+      let n = 0;
+      let i = haystack.indexOf(needle);
+      while (i !== -1) {
+        n++;
+        i = haystack.indexOf(needle, i + 1);
+      }
+      return n;
+    };
+    let total = count(body, selection);
+    if (total === 0) total = count(body, normalizeText(selection));
+    if (total === 0) return occurrence; // 正文中不存在（如选中的是属性面板文本）：维持原行为
+    return Math.min(occurrence, total - 1);
+  }
+
   /** 计算选中文本在文档中的起始行号（用于内文排序）；occurrence 为同文本第几处出现（0-based） */
   private computeLine(content: string | null, selection: string, editor: Editor | null, occurrence = 0): number | undefined {
     if (editor) {
@@ -1023,6 +1047,7 @@ export class MarkdownPatcher {
 
       // 防重复包裹：用户所选的那一处出现若已被 == 包裹则跳过文件修改
       // （仅检查正文；按已包裹数量与 occurrence 比较，避免选中后一处时被前处的包裹误判）
+      occurrence = this.clampOccurrenceToBody(content, selection, occurrence);
       const bodyStart = getBodyStartOffset(content);
       const wrappedMatches = content.slice(bodyStart).match(new RegExp(`==\\s*${escapeRegex(selection.trim())}\\s*==`, 'g'));
       const alreadyWrapped = !!wrappedMatches && wrappedMatches.length > occurrence;
@@ -1099,6 +1124,7 @@ export class MarkdownPatcher {
     if (inReadingMode) {
       content = await this.plugin.app.vault.read(file);
       // <u> 也不能跨段落，每段分别包裹；跨 ** / ~~ 边界时未配对标记留在包裹外
+      occurrence = this.clampOccurrenceToBody(content, selection, occurrence);
       const wrapUnderline = (origMatched: string) => wrapSegmented(origMatched, seg => `${wrapPrefix}${seg}${wrapSuffix}`);
       const updated = findAndReplace(content, selection, wrapUnderline, occurrence);
       if (updated) {
@@ -1148,6 +1174,7 @@ export class MarkdownPatcher {
     if (inReadingMode) {
       content = await this.plugin.app.vault.read(file);
       // 批注 = 高亮 + 内联注释：==文本==%% 批注 %%；跨段落拆分，跨 ** / ~~ 边界时未配对标记留在包裹外
+      occurrence = this.clampOccurrenceToBody(content, selection, occurrence);
       const wrapComment = (origMatched: string) => wrapSegmented(origMatched, seg => `==${seg}==%% ${comment} %%`);
       const updated = findAndReplace(content, selection, wrapComment, occurrence);
       if (updated) {

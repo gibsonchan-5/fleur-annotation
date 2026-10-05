@@ -51,7 +51,7 @@ function cleanInvisibleChars(s: string): string {
 /**
  * 归一化文本：清理不可见字符并去除首尾空白，用于匹配
  */
-function normalizeText(s: string): string {
+export function normalizeText(s: string): string {
   return cleanInvisibleChars(s).trim();
 }
 
@@ -474,11 +474,18 @@ export function getReadingModeOccurrence(selectionText: string): number {
     if (!probe) return 0;
     const text = root.textContent || '';
 
-    // 精确统计：pos 及之前完整出现的次数（第 N 处出现 → 返回 N-1）
+    // 属性面板（metadata-container）渲染在正文之前，其 description 常复述导语。
+    // 计数时跳过该区域，否则正文首段的 occurrence 会被面板里的同文本推高，
+    // 导致 == 包裹在原文中定位失败（弹「未能在原文中定位所选文本」）。
+    const metaLen = Array.from(root.querySelectorAll('.metadata-container'))
+      .reduce((sum, el) => sum + (el.textContent?.length ?? 0), 0);
+    if (pos < metaLen) return 0; // 选区起点落在属性面板内：不参与正文 occurrence 推断
+
+    // 精确统计：pos 及之前（跳过属性面板区域）完整出现的次数（第 N 处出现 → 返回 N-1）
     let count = 0;
     let idx = text.indexOf(probe);
     while (idx !== -1 && idx <= pos) {
-      count++;
+      if (idx >= metaLen) count++;
       idx = text.indexOf(probe, idx + 1);
     }
     if (count > 0) return count - 1;
@@ -488,7 +495,7 @@ export function getReadingModeOccurrence(selectionText: string): number {
     const norm = (s: string) => s.replace(/\s+/g, '');
     const nProbe = norm(probe);
     if (nProbe.length < 2) return 0;
-    const nText = norm(text.slice(0, pos));
+    const nText = norm(text.slice(metaLen, pos));
     let nCount = 0;
     let sIdx = nText.indexOf(nProbe);
     while (sIdx !== -1) {

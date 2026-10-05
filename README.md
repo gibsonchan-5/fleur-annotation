@@ -82,10 +82,25 @@ Compared to PDF annotation plugins, FleurAnnotation focuses specifically on Mark
 
 In Obsidian Settings → FleurAnnotation:
 
-- **AI Configuration**: Set AI provider (DeepSeek, OpenAI, Zhipu AI, Moonshot, etc.), API Key, Base URL, and model. API key is stored locally only.
+- **AI Configuration**: Set AI provider (DeepSeek, OpenAI, Zhipu AI, Moonshot, Alibaba Qwen / DashScope, etc.), API Key, Base URL, and model. Switching provider auto-fills its Base URL and recommended model. API key is stored locally only.
 - **Annotation Settings**: Customize default highlight color and underline style
 - **Export Settings**: Set default export folder
 - **Sidebar**: Choose sidebar position (left/right)
+
+## Privacy & Network Use
+
+FleurAnnotation is offline by default. Highlights, underlines, comments, the sidebar and note export touch nothing but your own vault — annotation data is stored as plain JSON files inside your vault (`.obsidian/plugins/fleur-annotation/data/`, or a folder you choose for cross-device sync).
+
+The plugin makes exactly one kind of network request, and only when you trigger it:
+
+- **AI requests you initiate.** "AI Explanation", "AI Translation" and "AI Annotation" POST the text you have selected, plus the prompt, to the OpenAI-compatible `chat/completions` endpoint you configure under Settings → Base URL — for example `api.deepseek.com`, `api.openai.com`, `open.bigmodel.cn`, `api.moonshot.cn` or `dashscope.aliyuncs.com` (Alibaba Qwen). Nothing is sent unless you invoke an AI action, and only the selected passage goes out, never the whole document.
+- **Optional web search (Qwen only).** If you turn on "Web search" while the provider is Alibaba Qwen / DashScope, the request sets `enable_search` and Alibaba's service retrieves public web pages server-side so it can answer time-sensitive questions. This adds a per-call search fee on your Alibaba bill.
+
+There is no telemetry, no analytics, no usage tracking, no ads, no remote code or assets, and no self-update mechanism. The plugin never contacts the author's servers, and it does not read or write anything outside your vault.
+
+Your API key stays on your device. By default it is kept in the system keychain through Obsidian's SecretStorage, which means it is not written to `data.json` and does not travel with your vault. If you switch the storage location to `data.json`, it is stored in clear text inside the vault and will sync with it — that tradeoff is your explicit choice, and the settings page warns you about it. The key is only ever transmitted as a `Bearer` token to the Base URL you configured.
+
+One local detail worth knowing: exported annotation notes carry a `source:` field in their frontmatter with the vault-relative path of the annotated note. That file is written into your own vault and is never uploaded anywhere.
 
 ## Development
 
@@ -157,7 +172,22 @@ FleurAnnotation 是一个 Obsidian 插件，为 Markdown 文件提供智能阅�
 
 在 Obsidian 设置 → FleurAnnotation 中：
 
-- **AI 配置**：设置 AI 服务商（DeepSeek、OpenAI、智谱 AI、Moonshot 等）、API Key、Base URL 和模型。API Key 仅保存在本地。
+- **AI 配置**：选择 AI 服务商（DeepSeek、OpenAI、智谱 AI、Moonshot、阿里千问/百炼 等）、API Key、Base URL 和模型。切换服务商会自动填入对应的 Base URL 与推荐模型。API Key 仅保存在本地。
 - **标注设置**：自定义默认高亮颜色和下划线样式
 - **导出设置**：设置默认导出文件夹
 - **侧边栏**：选择侧边栏位置（左侧/右侧）
+
+### 隐私与网络使用说明
+
+插件默认完全离线。高亮、划线、批注、侧边栏与导出笔记只读写你自己的 vault——批注数据以普通 JSON 文件形式保存在 vault 内（默认 `.obsidian/plugins/fleur-annotation/data/`，也可在设置里改到用于跨设备同步的目录）。
+
+插件只发起一种网络请求，且只在你手动触发时发生：
+
+- **你主动发起的 AI 请求。**「AI 解释」「AI 翻译」和侧边栏的「AI 批注」会把**你选中的那段文字**加上提示词，POST 到你在设置里填的 Base URL 对应的 OpenAI 兼容 `chat/completions` 接口，例如 `api.deepseek.com`、`api.openai.com`、`open.bigmodel.cn`、`api.moonshot.cn`、`dashscope.aliyuncs.com`（阿里千问）。不点 AI 就不会有任何外发，且只发送选中文本，不会上传整篇文档。
+- **可选的联网搜索（仅千问）。** 提供商为阿里千问 / 百炼且开启「联网搜索」时，请求会带上 `enable_search`，由阿里云在服务端检索公开网页以回答时政等时效性问题；这会在你的阿里云账单里额外产生每次调用的搜索费用。
+
+没有遥测、没有数据统计、没有广告、没有远程代码或资源加载、也没有自我更新机制。插件不会连接作者的任何服务器，读写范围不超出你的 vault。
+
+API Key 始终留在你自己的设备上。默认通过 Obsidian 的 SecretStorage 存进系统钥匙串，因此不写入 `data.json`，也不会随 vault 同步；如果你把「密钥保存位置」改成 `data.json`，密钥将以明文存在 vault 内并随其同步——这是你主动选择的取舍，设置页也会给出提示。密钥只会作为 `Bearer` 令牌发往你填写的那个 Base URL。
+
+另外一点本地细节：导出的批注笔记，其 frontmatter 里会有 `source:` 字段，记录被批注笔记在 vault 内的相对路径。这个文件只写进你自己的 vault，不会上传到任何地方。

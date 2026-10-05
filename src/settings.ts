@@ -17,6 +17,11 @@ export interface FleurSettings {
   secretStorageMode: 'system' | 'vault';
   baseUrl: string;
   model: string;
+  /**
+   * 联网搜索（仅阿里云百炼/千问支持）：请求体带 enable_search，让模型先检索再生成。
+   * 非 DashScope 接口不认这个字段，所以实际发送前还要按提供商再判一次（见 ai-service.ts）。
+   */
+  aiWebSearch: boolean;
   temperature: number;
   maxTokens: number;
   topP: number;
@@ -56,6 +61,7 @@ export const DEFAULT_SETTINGS: FleurSettings = {
   secretStorageMode: 'system',
   baseUrl: 'https://api.deepseek.com/v1',
   model: 'deepseek-chat',
+  aiWebSearch: false,
   highlightColor: '#FFD43B',
   underlineStyle: 'solid',
   underlineColor: '#E8590C',
@@ -90,21 +96,27 @@ export class FleurSettingTab extends PluginSettingTab {
     // AI 配置
     new Setting(containerEl).setHeading().setName('AI 配置');
 
+    // 预置提供商：均为 OpenAI 兼容接口，与 fleur-epub / fleurdict 的同名条目保持一致
     const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
       deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
       openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo' },
       zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4' },
       moonshot: { baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+      // 阿里云百炼（千问 / 通义千问）：compatible-mode 是 OpenAI 兼容路径。
+      // 北京/新加坡/美国/香港各区只是域名不同，路径都以 /compatible-mode/v1 结尾，
+      // 用国际站密钥时把域名改成 dashscope-intl 即可。
+      qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
     };
 
     new Setting(containerEl)
       .setName('AI 提供商')
-      .setDesc('选择 AI 服务提供商')
+      .setDesc('选择 AI 服务提供商（均为 OpenAI 兼容接口；切换后自动填入该家的 Base URL 与默认模型）')
       .addDropdown(dropdown => dropdown
         .addOption('deepseek', 'DeepSeek')
         .addOption('openai', 'OpenAI')
         .addOption('zhipu', '智谱 AI')
         .addOption('moonshot', 'Moonshot')
+        .addOption('qwen', '阿里 · 千问（通义千问 / 百炼）')
         .setValue(this.plugin.settings.aiProvider)
         .onChange(async (value) => {
           this.plugin.settings.aiProvider = value;
@@ -196,6 +208,27 @@ export class FleurSettingTab extends PluginSettingTab {
           this.plugin.settings.model = value;
           await this.plugin.saveSettings();
         }));
+
+    // 联网搜索：enable_search 是百炼（DashScope）的私有字段，DeepSeek / OpenAI 收到未知字段会直接 400，
+    // 所以这一项只在提供商是千问、或 Base URL 指向 dashscope 时出现，发送前还会再判一次。
+    const isDashScope = this.plugin.settings.aiProvider === 'qwen'
+      || (this.plugin.settings.baseUrl ?? '').includes('dashscope');
+
+    if (isDashScope) {
+      new Setting(containerEl)
+        .setName('联网搜索')
+        .setDesc(
+          '模型自带的训练知识有截止日期（千问目前最新权重停在 2026 年年中），问时政、近期事件等时效内容时建议开启：'
+          + '请求会先联网检索再生成，用 turbo 策略（默认档，成本最低）。'
+          + '计费 = 模型原本的 token 费 + 每次调用一笔搜索调用费，且侧边栏「AI 生成批注」和正文「询问 AI」都会走检索，按成本需要权衡。',
+        )
+        .addToggle(toggle => toggle
+          .setValue(this.plugin.settings.aiWebSearch ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.aiWebSearch = value;
+            await this.plugin.saveSettings();
+          }));
+    }
 
     // AI 生成参数
     new Setting(containerEl)

@@ -5,6 +5,8 @@ import type { Editor, MarkdownPreviewView } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
+import { getFleurDictBridge, isDictWord, type FleurDictBridge } from './dict-bridge';
+import { StandaloneDictPopup } from './standalone-dict';
 import { wrapSelection, appendToSelection, findAndReplace, findNthIndex, wrapSegmented, getBodyStartOffset, getReadingModeSelection, getReadingModeOccurrence, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex, normalizeText } from './editor';
 
 // ═══════════════════════════════════════════
@@ -472,6 +474,18 @@ export class MarkdownPatcher {
       item.setIcon('languages');
       item.onClick(() => this.askAITranslate(selection));
     });
+
+    // ── 查词：仅单词 / 短语（≤4 词）出现；FleurDict 在场走桥接，不在场走内置词典 ──
+    if (isDictWord(selection)) {
+      menu.addItem((item) => {
+        item.setTitle(getFleurDictBridge(this.plugin.app) ? '查词（FleurDict）' : '查词');
+        item.setIcon('book-open');
+        item.onClick(() => {
+          const { x, y } = this.selectionAnchor();
+          this.dictLookupDispatch(selection, x, y);
+        });
+      });
+    }
   }
 
   // ── 移动端选区工具条（对齐 fleurEpub mselbar 设计）──────────────
@@ -556,6 +570,18 @@ export class MarkdownPatcher {
     mkBtn('译', 'AI 翻译', () => {
       this.useMobileSelection((sel) => this.askAITranslate(sel));
     });
+    // ── 查词：仅单词 / 短语出现；点按时先取选区锚点，再收工具条（防选区塌缩取不到坐标）──
+    if (isDictWord(this.mSelSnapshot ?? '')) {
+      const dictBtn = bar.createSpan('fleur-mselbar-btn');
+      dictBtn.setText('查');
+      dictBtn.setAttribute('aria-label', getFleurDictBridge(this.plugin.app) ? '查词（FleurDict）' : '查词');
+      press(dictBtn);
+      dictBtn.addEventListener('click', () => {
+        const { x, y } = this.selectionAnchor();
+        this.hideMobileSelectionBar();
+        this.dictLookupDispatch(this.mSelSnapshot ?? '', x, y);
+      });
+    }
 
     // 两次 rAF：首帧字号未落定时量到的宽度偏大，落位会算歪（对齐 fleurEpub）
     const place = () => {
@@ -662,6 +688,15 @@ export class MarkdownPatcher {
       item.setIcon('languages');
       item.onClick(() => this.askAITranslate(selection, e.clientX, e.clientY));
     });
+
+    // ── 查词：仅单词 / 短语（≤4 词）出现；FleurDict 在场走桥接，不在场走内置词典 ──
+    if (isDictWord(selection)) {
+      menu.addItem((item) => {
+        item.setTitle(getFleurDictBridge(this.plugin.app) ? '查词（FleurDict）' : '查词');
+        item.setIcon('book-open');
+        item.onClick(() => this.dictLookupDispatch(selection, e.clientX, e.clientY));
+      });
+    }
 
     menu.showAtMouseEvent(e);
   }
@@ -1715,6 +1750,101 @@ export class MarkdownPatcher {
   private askAITranslate(text: string, anchorX?: number, anchorY?: number) {
     const panel = new AIChatPanel(this.plugin, text, 'translate');
     panel.open(anchorX, anchorY);
+  }
+
+  // ═══════════════════════════════════════════
+  //  FleurDict 查词桥接（移植自 fleur-pdf，详见 dict-bridge.ts）
+  // ═══════════════════════════════════════════
+
+  /** 从当前 DOM 选区取弹窗锚点（选区下缘中点）；取不到时落到视口中上位置 */
+  private selectionAnchor(): { x: number; y: number } {
+    const sel = document.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      try {
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        if (rect.width > 0 || rect.height > 0) {
+          return { x: rect.left + rect.width / 2, y: rect.bottom };
+        }
+      } catch { /* 选区已失效，走兜底 */ }
+    }
+    return { x: window.innerWidth / 2, y: window.innerHeight / 3 };
+  }
+
+  /**
+   * 查词：调 FleurDict 在选区旁弹查词窗（词典释义 + AI 详解 + 加入生词本）。
+   * 词与上下文在点击时先行捕获（菜单 / 工具条随即收起）。
+   */
+  private async dictLookup(bridge: FleurDictBridge, word: string, x: number, y: number): Promise<void> {
+    const w = word.trim();
+    if (!w) return;
+    // 查词来源由 fleur-annotation 设置固定指定（不跟随 FleurDict 设置，因部分用户未装 FleurDict）
+    const source = this.plugin.settings.dictSource;
+    const shown = await bridge.lookupWordAt(w.toLowerCase(), x, y, {
+      source,
+      onAddToWordbook: () => void this.addWordToWordbook(bridge, w, w),
+    });
+    if (!shown) new Notice('FleurDict 查询失败，请确认其已启用且网络可用', 3000);
+  }
+
+  /**
+   * 内置独立查词（FleurDict 不在场时的降级路径）：有道 / Free Dictionary 直连。
+   * 弹窗交互与 FleurDict 查词窗对齐（拖拽/缩放/记忆/AI 详解/生词本），
+   * 释义复用弹窗查询结果，不二次请求。
+   */
+  private standaloneLookup(word: string, x: number, y: number): void {
+    const w = word.trim();
+    if (!w) return;
+    const context = w;
+    let prefetched = { meaning: '', phonetic: '' };
+    new StandaloneDictPopup(this.plugin, {
+      x,
+      y,
+      word: w,
+      source: this.plugin.settings.dictSource,
+      // 弹窗查询完成后回填释义，供「＋ 加入生词本」落词时复用
+      onQueryResult: (entry) => {
+        if (!entry) return;
+        prefetched = {
+          meaning: entry.meanings
+            .map((m) => {
+              const defs = m.definitions.map((d) => d.definition).join('；');
+              return m.partOfSpeech && defs ? `${m.partOfSpeech} ${defs}` : defs;
+            })
+            .filter(Boolean)
+            .join('；'),
+          phonetic: entry.phonetics.find((p) => p.text)?.text ?? '',
+        };
+      },
+      // AI 详解：与菜单「AI 解释」同管线（浮动面板、多轮追问）
+      onAIDetail: () => {
+        this.askAIExplain(w, x, y);
+      },
+      onAddToWordbook: () => {
+        // 独立查词的落词永远进本地词库（FleurDict 不在场，无从同步）
+        void this.plugin.addLocalWordbookEntry(w, context, null, prefetched);
+      },
+    }).open().catch(() => undefined);
+  }
+
+  /** 加入生词本：同步开 → FleurDict 全管线（含欧路同步）；同步关 → 独立生词本 */
+  private async addWordToWordbook(bridge: FleurDictBridge, word: string, context: string): Promise<void> {
+    if (this.plugin.settings.dictSyncWordbook) {
+      await bridge.addToWordbook(word, context);
+    } else {
+      await this.plugin.addLocalWordbookEntry(word, context, bridge);
+    }
+  }
+
+  /** 查词统一入口：按 FleurDict 是否在场分流（供菜单与移动端工具条共用） */
+  private dictLookupDispatch(word: string, x: number, y: number): void {
+    const w = word.trim();
+    if (!w) return;
+    const bridge = getFleurDictBridge(this.plugin.app);
+    if (bridge) {
+      void this.dictLookup(bridge, w, x, y);
+    } else {
+      this.standaloneLookup(w, x, y);
+    }
   }
 
   /**

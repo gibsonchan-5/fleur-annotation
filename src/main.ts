@@ -13,6 +13,8 @@ import {
   resolveBackend,
   type SecretBackend,
 } from './secret-store';
+import { getFleurDictBridge, queryMeaning, type FleurDictBridge } from './dict-bridge';
+import { WordbookSync, type WordbookTombstone } from './wordbook-sync';
 
 export default class FleurAnnotationPlugin extends Plugin {
   store: AnnotationStore;
@@ -21,13 +23,86 @@ export default class FleurAnnotationPlugin extends Plugin {
   /** 本机 Obsidian 是否支持官方 SecretStorage（系统钥匙串）。 */
   secretStorageAvailable = false;
 
+  /** 独立生词本跨设备同步（wordbookSync 开关，默认关；详见 wordbook-sync.ts） */
+  wordbookSync = new WordbookSync(this.app, this);
+
   /** 当前实际生效的密钥后端（system=钥匙串，vault=data.json 明文）。 */
   get secretBackend(): SecretBackend {
     return resolveBackend(this.app, this.settings.secretStorageMode);
   }
 
+  // ── 独立生词本（dictSyncWordbook = false 时使用；存 settings.wordbook → data.json）──
+  // 移植自 fleur-pdf 同名方法；事件名改为 fleur-annotation:wordbook-changed。
+
+  /**
+   * 加入独立生词本：去重（同词忽略）、填充释义（复用 FleurDict 词典引擎，可失败）、
+   * 落盘并 Notice。不触碰 FleurDict 的词库数据。
+   */
+  async addLocalWordbookEntry(word: string, context: string | undefined, bridge: FleurDictBridge | null, prefetched?: { meaning: string; phonetic: string }): Promise<void> {
+    const norm = word.trim().toLowerCase();
+    if (!norm) return;
+    if (this.settings.wordbook.some((w) => w.word === norm)) {
+      new Notice(`"${norm}" 已在独立生词本中`, 2000);
+      return;
+    }
+    // 释义来源优先级：弹窗已查到的预取释义 > FleurDict 引擎查询 > 空串
+    const { meaning, phonetic } = prefetched ?? (bridge ? await queryMeaning(bridge, norm) : { meaning: '', phonetic: '' });
+    this.settings.wordbook.push({
+      word: norm,
+      meaning,
+      phonetic,
+      context: context?.trim() || undefined,
+      addedAt: new Date().toISOString(),
+    });
+    await this.saveSettings();
+    new Notice(`✓ "${norm}" 已加入 fleur-annotation 独立生词本`, 2500);
+    await this.wordbookSync.push();
+    this.app.workspace.trigger('fleur-annotation:wordbook-changed');
+  }
+
+  /** 删除独立生词本词条（生词本管理 Modal 用；广播事件） */
+  async removeWordbookEntry(word: string): Promise<void> {
+    const removed = this.settings.wordbook.find((w) => w.word === word);
+    const before = this.settings.wordbook.length;
+    this.settings.wordbook = this.settings.wordbook.filter((w) => w.word !== word);
+    if (this.settings.wordbook.length === before) return;
+    await this.saveSettings();
+    new Notice(`已删除 "${word}"`, 2000);
+    // 删除留墓碑：否则另一端合并时该词会被「复活」
+    await this.wordbookSync.push(removed ? [{ word: removed.word, deletedAt: removed.addedAt }] : []);
+    this.app.workspace.trigger('fleur-annotation:wordbook-changed');
+  }
+
+  /** 编辑独立生词本词条（按原词定位；word 字段允许改名） */
+  async updateWordbookEntry(originalWord: string, patch: { word: string; phonetic: string; meaning: string }): Promise<void> {
+    const entry = this.settings.wordbook.find((w) => w.word === originalWord);
+    if (!entry) return;
+    const renamed = patch.word !== originalWord;
+    entry.word = patch.word;
+    entry.phonetic = patch.phonetic;
+    entry.meaning = patch.meaning;
+    await this.saveSettings();
+    // 改名 = 旧词留墓碑（否则另一端合并时新旧两词并存）；仅改释义不留
+    await this.wordbookSync.push(renamed ? [{ word: originalWord, deletedAt: entry.addedAt }] : []);
+    this.app.workspace.trigger('fleur-annotation:wordbook-changed');
+  }
+
+  /** 清空独立生词本（生词本管理 Modal 二次确认后调用） */
+  async clearWordbook(): Promise<void> {
+    // 全部词条留墓碑：否则另一端同步会把清空「复活」回来
+    const deletions: WordbookTombstone[] = this.settings.wordbook.map((w) => ({ word: w.word, deletedAt: w.addedAt }));
+    this.settings.wordbook = [];
+    await this.saveSettings();
+    await this.wordbookSync.push(deletions);
+    new Notice('独立生词本已清空', 2500);
+    this.app.workspace.trigger('fleur-annotation:wordbook-changed');
+  }
+
   async onload() {
     await this.loadSettings();
+
+    // 独立生词本跨设备同步（开关关闭时内部全部跳过，桌面/移动零影响）
+    this.wordbookSync.init();
 
     this.store = new AnnotationStore(this.app, this.manifest.id, () => this.settings);
     this.patcher = new MarkdownPatcher(this);

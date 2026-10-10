@@ -1,5 +1,7 @@
 import { App, PluginSettingTab, Setting, DropdownComponent, Notice } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
+import { getFleurDictBridge } from './dict-bridge';
+import { WordbookManagerModal } from './wordbook-manager-modal';
 import {
   PROMPT_PRESETS,
   getPromptPreset,
@@ -9,6 +11,15 @@ import {
   ANNOTATION_DEFAULT_BASE_LIMIT,
 } from './ai-prompts';
 import type { PromptPresetKey } from './ai-prompts';
+
+/** 独立生词本词条（dictSyncWordbook = false 时写入 settings.wordbook；与 fleur-pdf / fleur-epub 同构） */
+export interface WordbookItem {
+  word: string;
+  meaning: string;
+  phonetic: string;
+  context?: string;
+  addedAt: string;
+}
 
 export interface FleurSettings {
   aiProvider: string;
@@ -49,6 +60,22 @@ export interface FleurSettings {
   annotationSortMigrated?: boolean;
 
   readingContextMenu: boolean;
+
+  // ── 词典查词与生词本（移植自 fleur-pdf；桥接 FleurDict，需 FleurDict ≥ 1.5.12） ──
+  /** 查词来源（fleur-annotation 内查词固定用此选项，不读取 FleurDict 的设置） */
+  dictSource: 'youdao' | 'free-dict';
+  /** 内置查词弹窗位置/尺寸记忆（对齐 FleurDict：拖拽/缩放后持久化，下次打开恢复） */
+  dictPopupRect?: { left: number; top: number; width: number; height: number };
+  /** 生词本同步：true = 写入 FleurDict 词库（联动闪卡/词高亮/欧路同步）；false = 存 fleur-annotation 独立生词本（wordbook） */
+  dictSyncWordbook: boolean;
+  /** 独立生词本（仅 dictSyncWordbook = false 时写入；存 data.json，跨设备随配置目录） */
+  wordbook: WordbookItem[];
+  /**
+   * 独立生词本跨设备同步（默认关）。开启后 wordbook 双向合并到 Vault 内
+   * FleurAnnotation/data/wordbook.json（随同步插件跨设备；删除走墓碑防复活），
+   * data.json 保留作本机回退。
+   */
+  wordbookSync: boolean;
 }
 
 /** 旧版默认 System Prompt（仅用于迁移判断：与默认值相同则无需迁移） */
@@ -73,6 +100,10 @@ export const DEFAULT_SETTINGS: FleurSettings = {
   sidebarDefaultOpen: true,
   annotationSort: 'line',
   readingContextMenu: true,
+  dictSource: 'youdao',
+  dictSyncWordbook: true,
+  wordbook: [],
+  wordbookSync: false,
   temperature: 0.7,
   maxTokens: 8092,
   topP: 0.95,
@@ -464,6 +495,80 @@ export class FleurSettingTab extends PluginSettingTab {
             this.plugin.settings.underlineColor = value;
             await this.plugin.saveSettings();
             this.display();
+          }
+        }));
+
+    // 词典查词与生词本（移植自 fleur-pdf；桥接 FleurDict）
+    new Setting(containerEl).setHeading().setName('词典查词');
+
+    // FleurDict 检测状态提示（对齐 fleur-pdf：让用户知道桥接是否可用）
+    new Setting(containerEl)
+      .setName('FleurDict 桥接')
+      .setDesc(
+        getFleurDictBridge(this.app)
+          ? '已检测到 FleurDict：笔记里选中单词 / 短语可查词（含 AI 详解、加入生词本），选中句子可 AI 翻译。'
+          : '未检测到 FleurDict（或版本低于 1.5.12）：选中单词将使用内置词典查词，功能不缺席；安装并启用 FleurDict 后自动切换为它的查词窗。',
+      );
+
+    new Setting(containerEl)
+      .setName('查词来源')
+      .setDesc('内置词典查词使用的数据源（FleurDict 查词窗同样遵循此选择）')
+      .addDropdown(dropdown => dropdown
+        .addOption('youdao', '有道词典（中英释义）')
+        .addOption('free-dict', 'Free Dictionary（英文释义）')
+        .setValue(this.plugin.settings.dictSource)
+        .onChange(async (value) => {
+          this.plugin.settings.dictSource = value === 'free-dict' ? 'free-dict' : 'youdao';
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('生词本与 FleurDict 同步')
+      .setDesc('开启 = 加入生词本时写入 FleurDict 词库（闪卡复习、生词高亮、欧路同步全链路生效）；关闭 = 存入 fleur-annotation 独立生词本，与 FleurDict 互不影响')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.dictSyncWordbook)
+        .onChange(async (value) => {
+          this.plugin.settings.dictSyncWordbook = value;
+          await this.plugin.saveSettings();
+          if (wordbookEntry) wordbookEntry.setDesc(wordbookDesc());
+        }));
+
+    /** 描述文案随「生词本与 FleurDict 同步」开关状态变化（供初始渲染与原地刷新共用）。 */
+    const wordbookDesc = () => {
+      const count = this.plugin.settings.wordbook.length;
+      return this.plugin.settings.dictSyncWordbook
+        ? (count > 0
+            ? `另有 ${count} 条历史词条存于本插件（开启同步前落的词，保留不动；新查的词已写入 FleurDict）`
+            : '为空（开启同步中：新查的词将写入 FleurDict 词库）')
+        : `当前 ${count} 词（存于本插件 data.json；勾选上方同步后新查的词将写入 FleurDict，已有词条保留不动）`;
+    };
+    let wordbookEntry: Setting | null = null;
+    {
+      const entry = new Setting(containerEl).setName('独立生词本').setDesc(wordbookDesc());
+      wordbookEntry = entry;
+      entry.addButton(button => button
+        .setButtonText('管理')
+        .setDisabled(this.plugin.settings.wordbook.length === 0)
+        .onClick(() => {
+          new WordbookManagerModal(this.plugin).open();
+        }));
+    }
+
+    // ── 独立生词本跨设备同步（与 FleurDict 同步互不相干：只管本插件的独立词库） ──
+    new Setting(containerEl)
+      .setName('独立生词本跨设备同步')
+      .setDesc(
+        '开启后，独立生词本双向同步到 Vault 内 FleurAnnotation/data/wordbook.json，可被 Remotely Save / iCloud 等同步到其他设备（增删改全同步，删除走墓碑不会复活；data.json 保留作本机回退）。' +
+          '需在每台设备上分别开启；仅「生词本与 FleurDict 同步」关闭（独立词库）时有意义。',
+      )
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.wordbookSync ?? false)
+        .onChange(async (value) => {
+          this.plugin.settings.wordbookSync = value;
+          await this.plugin.saveSettings();
+          if (value) {
+            const changed = await this.plugin.wordbookSync.pullAndMerge('local-change');
+            if (changed) this.plugin.app.workspace.trigger('fleur-annotation:wordbook-changed');
           }
         }));
 

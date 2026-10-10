@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu, TFile, MarkdownView, Platform } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, MarkdownRenderer, Menu, TFile, MarkdownView, Platform, getAllTags } from 'obsidian';
 import { stripMarkdown } from './editor';
 import { resolveSystemPrompt } from './ai-prompts';
 import type FleurAnnotationPlugin from './main';
@@ -500,11 +500,18 @@ export class SidebarView extends ItemView {
 
       const lines: string[] = [];
 
-      // ── frontmatter（自动标签 + 元信息） ──
-      const tags = (this.plugin.settings.exportTags || 'fleur-annotation,批注导出')
+      // ── frontmatter（原笔记 tags + 自动标签，去重合并；原笔记 tags 在前） ──
+      // 规则：导出笔记必须携带与原笔记一致的 tags（getAllTags 同时兼容
+      // tags/tag 两种键名与列表/行内两种 YAML 写法，并自动去掉 # 前缀）
+      const srcCache = this.app.metadataCache.getFileCache(file);
+      const sourceTags = ((srcCache ? getAllTags(srcCache) : null) || [])
+        .map(t => t.replace(/^#/, '').trim())
+        .filter(Boolean);
+      const autoTags = (this.plugin.settings.exportTags || 'fleur-annotation,批注导出')
         .split(/[,，\s]+/)
         .map(t => t.trim())
         .filter(Boolean);
+      const tags = Array.from(new Set([...sourceTags, ...autoTags]));
       lines.push('---');
       lines.push(`tags: [${tags.join(', ')}]`);
       lines.push(`source: "${file.path.replace(/"/g, '\\"')}"`);

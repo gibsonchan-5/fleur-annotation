@@ -1675,9 +1675,10 @@ body.fleur-annotation-dict-dragging {
 	font-weight: 600;
 }
 .fleur-ai-close-btn {
-	width: 28px;
-	height: 28px;
-	border-radius: 7px;
+	width: 34px;
+	height: 34px;
+	margin: -6px -4px -6px 0; /* 抵消 header 上下 padding,让点击区贴满标题栏 */
+	border-radius: 9px;
 	font-size: unset;
 }
 /* AI 消息操作按钮:图标 + 文案,幽灵样式,悬停浮起 */

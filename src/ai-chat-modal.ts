@@ -187,7 +187,7 @@ export class AIChatPanel {
     const closeBtn = header.createEl('button');
     closeBtn.addClass('fleur-ai-close-btn');
     closeBtn.setAttribute('aria-label', '关闭');
-    const closeSvg = lucideIcon('x', 16);
+    const closeSvg = lucideIcon('x', 20);
     if (closeSvg) closeBtn.appendChild(closeSvg);
     else closeBtn.textContent = '×';
     closeBtn.addEventListener('click', () => this.close());

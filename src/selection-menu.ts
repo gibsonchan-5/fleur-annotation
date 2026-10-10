@@ -41,16 +41,15 @@ export function lucideIcon(name: string, size = 16): SVGSVGElement | null {
   const paths = LUCIDE_PATHS[name];
   if (!paths) return null;
   const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
+  // 用 DOMParser 解析硬编码 path 集，避免 innerHTML（CodeQL js/unsafe-innerHTML）
+  const doc = new DOMParser().parseFromString(
+    `<svg xmlns="${svgNS}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`,
+    'image/svg+xml'
+  );
+  const svg = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+  if (!svg || svg.nodeName !== 'svg') return null;
   svg.setAttribute('width', String(size));
   svg.setAttribute('height', String(size));
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.innerHTML = paths;
   return svg;
 }
 

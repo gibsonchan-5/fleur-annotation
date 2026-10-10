@@ -7,6 +7,7 @@ import type { Annotation } from './types';
 import { AIChatPanel } from './ai-chat-modal';
 import { getFleurDictBridge, isDictWord, type FleurDictBridge } from './dict-bridge';
 import { StandaloneDictPopup } from './standalone-dict';
+import { showSelectionMenu, lucideIcon, type SelectionMenuEntry } from './selection-menu';
 import { wrapSelection, appendToSelection, findAndReplace, findNthIndex, wrapSegmented, getBodyStartOffset, getReadingModeSelection, getReadingModeOccurrence, isInReadingMode, isInLivePreview, stripMarkdown, escapeRegex, normalizeText } from './editor';
 
 // ═══════════════════════════════════════════
@@ -346,9 +347,66 @@ export class MarkdownPatcher {
       const byOcc = (x: Annotation, y: Annotation) =>
         ((x as any).occurrence ?? 0) - ((y as any).occurrence ?? 0) || (x.createdAt ?? 0) - (y.createdAt ?? 0);
 
+      /** 给 mark 补上/更新批注气泡图标（带 hover 展示）。气泡插在 mark 的紧后面 */
+      const ensureBubble = (markEl: HTMLElement, annotation: Annotation) => {
+        const next = markEl.nextElementSibling;
+        const hasBubble = !!(next && next.classList && next.classList.contains('fleur-annotation-bubble'));
+
+        if (!annotation.comment) {
+          // 批注内容被清空（少见）→ 收掉气泡，保持与数据一致
+          if (hasBubble) next!.remove();
+          return;
+        }
+        if (hasBubble) {
+          // 已有气泡：仅同步 id（数据未变时是幂等空转）
+          (next as HTMLElement).dataset.fleurAnnotation = annotation.id;
+          return;
+        }
+
+        // 创建小气泡图标
+        const bubble = markEl.createEl('span');
+        bubble.addClass('fleur-annotation-bubble');
+        bubble.dataset.fleurAnnotation = annotation.id;
+
+        // 使用 DOM API 创建 SVG（避免 innerHTML）
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('width', '12');
+        svg.setAttribute('height', '12');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
+        svg.appendChild(path);
+        bubble.appendChild(svg);
+
+        // 直接绑定 mouseenter/mouseleave 到气泡图标上
+        bubble.addEventListener('mouseenter', (e) => {
+          this.showTooltip(annotation.id, bubble, e);
+        });
+        bubble.addEventListener('mouseleave', () => {
+          this.scheduleHideTooltip();
+        });
+
+        markEl.after(bubble);
+      };
+
       marks.forEach(mark => {
-        // 已注入过则跳过（必须先于配对消费，避免重跑时重复占用队列）
-        if ((mark as HTMLElement).dataset.fleurAnnotation) return;
+        const markEl = mark as HTMLElement;
+
+        // 已注入过的 mark：不再重新配对，但检查气泡与最新数据是否一致。
+        // 场景：高亮先注入（无批注内容 → 只有标记没有气泡），随后「AI 写入批注」
+        // 更新了这条批注的内容 —— 旧逻辑在这里整体 return，气泡永远不会补上。
+        const existingId = markEl.dataset.fleurAnnotation;
+        if (existingId) {
+          const ann = annotations.find(a => a.id === existingId);
+          if (ann) ensureBubble(markEl, ann);
+          return;
+        }
 
         // 跳过非 annotation 来源的 <u>（如正文自带的下划线）
         const tag = mark.tagName.toLowerCase();
@@ -384,44 +442,12 @@ export class MarkdownPatcher {
         }
         usedIds.add(annotation.id);
 
-        const markEl = mark as HTMLElement;
         markEl.dataset.fleurAnnotation = annotation.id;
         markEl.addClass('fleur-annotation-mark');
 
         // 气泡图标只给带批注内容的（纯高亮/划线无可展示内容；
         // 移动端点按清除对所有类型生效，靠上面的 data-fleur-annotation id）
-        if (!annotation.comment) return;
-
-        // 创建小气泡图标
-        const bubble = markEl.createEl('span');
-        bubble.addClass('fleur-annotation-bubble');
-        bubble.dataset.fleurAnnotation = annotation.id;
-
-        // 使用 DOM API 创建 SVG（避免 innerHTML）
-        const svgNS = 'http://www.w3.org/2000/svg';
-        const svg = document.createElementNS(svgNS, 'svg');
-        svg.setAttribute('width', '12');
-        svg.setAttribute('height', '12');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2');
-        svg.setAttribute('stroke-linecap', 'round');
-        svg.setAttribute('stroke-linejoin', 'round');
-        const path = document.createElementNS(svgNS, 'path');
-        path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
-        svg.appendChild(path);
-        bubble.appendChild(svg);
-
-        // 直接绑定 mouseenter/mouseleave 到气泡图标上
-        bubble.addEventListener('mouseenter', (e) => {
-          this.showTooltip(annotation.id, bubble, e);
-        });
-        bubble.addEventListener('mouseleave', () => {
-          this.scheduleHideTooltip();
-        });
-        
-        mark.after(bubble);
+        ensureBubble(markEl, annotation);
 
         injected++;
       });
@@ -469,21 +495,22 @@ export class MarkdownPatcher {
       item.onClick(() => this.askAIExplain(selection));
     });
 
-    menu.addItem((item) => {
-      item.setTitle('AI 翻译');
-      item.setIcon('languages');
-      item.onClick(() => this.askAITranslate(selection));
-    });
-
-    // ── 查词：仅单词 / 短语（≤4 词）出现；FleurDict 在场走桥接，不在场走内置词典 ──
+    // ── 译（整合入口，对齐 fleurEpub）：单词/短语 → 查词+详解；句子 → AI 翻译 ──
+    // 查词窗内含词典释义 + AI 详解 + 加入生词本（FleurDict 在场走桥接，不在场走内置词典）
     if (isDictWord(selection)) {
       menu.addItem((item) => {
-        item.setTitle(getFleurDictBridge(this.plugin.app) ? '查词（FleurDict）' : '查词');
+        item.setTitle('查词 + 详解');
         item.setIcon('book-open');
         item.onClick(() => {
           const { x, y } = this.selectionAnchor();
           this.dictLookupDispatch(selection, x, y);
         });
+      });
+    } else {
+      menu.addItem((item) => {
+        item.setTitle('AI 翻译');
+        item.setIcon('languages');
+        item.onClick(() => this.askAITranslate(selection));
       });
     }
   }
@@ -532,15 +559,19 @@ export class MarkdownPatcher {
     // 阻止 mousedown 让选区塌缩（触屏上 touchstart 亦同）
     const press = (el: HTMLElement) => el.addEventListener('mousedown', (e) => e.preventDefault());
 
-    const mkBtn = (label: string, title: string, fn: () => void) => {
+    // 按钮:图标(与右键菜单同一套 lucide 图标)+ aria 文案
+    const mkBtn = (iconName: string, title: string, fn: () => void) => {
       const b = bar.createSpan('fleur-mselbar-btn');
-      b.setText(label);
+      const svg = lucideIcon(iconName, 18);
+      if (svg) b.appendChild(svg);
+      else b.setText(iconName);
       b.setAttribute('aria-label', title);
       press(b);
       b.addEventListener('click', () => {
         this.hideMobileSelectionBar();
         fn();
       });
+      return b;
     };
 
     // 高亮色点（取当前设置色）
@@ -555,31 +586,35 @@ export class MarkdownPatcher {
     });
     bar.createDiv('fleur-mselbar-sep');
 
-    mkBtn('U', '添加划线', () => {
+    mkBtn('underline', '添加划线', () => {
       void this.useMobileSelection((sel, view, inReading, occurrence) =>
         this.addUnderline(sel, inReading ? null : view, inReading, occurrence));
     });
-    mkBtn('✎', '添加批注', () => {
+    mkBtn('pen-line', '添加批注', () => {
       this.useMobileSelection((sel, view, inReading, occurrence) =>
         this.showCommentModal(sel, inReading ? null : view, inReading, occurrence));
     });
     bar.createDiv('fleur-mselbar-sep');
-    mkBtn('AI', 'AI 解释', () => {
+    mkBtn('sparkles', 'AI 解释', () => {
       this.useMobileSelection((sel) => this.askAIExplain(sel));
     });
-    mkBtn('译', 'AI 翻译', () => {
-      this.useMobileSelection((sel) => this.askAITranslate(sel));
-    });
-    // ── 查词：仅单词 / 短语出现；点按时先取选区锚点，再收工具条（防选区塌缩取不到坐标）──
+    // ── 译（整合入口，对齐 fleurEpub）：单词/短语 → 查词+详解；句子 → AI 翻译 ──
+    // 查词需在收起工具条前先取选区锚点（点按后选区塌缩取不到坐标）
     if (isDictWord(this.mSelSnapshot ?? '')) {
       const dictBtn = bar.createSpan('fleur-mselbar-btn');
-      dictBtn.setText('查');
-      dictBtn.setAttribute('aria-label', getFleurDictBridge(this.plugin.app) ? '查词（FleurDict）' : '查词');
+      const dictSvg = lucideIcon('book-open', 18);
+      if (dictSvg) dictBtn.appendChild(dictSvg);
+      else dictBtn.setText('查');
+      dictBtn.setAttribute('aria-label', '查词 + 详解（词典释义 + AI 详解 + 加入生词本）');
       press(dictBtn);
       dictBtn.addEventListener('click', () => {
         const { x, y } = this.selectionAnchor();
         this.hideMobileSelectionBar();
         this.dictLookupDispatch(this.mSelSnapshot ?? '', x, y);
+      });
+    } else {
+      mkBtn('languages', 'AI 翻译选中文本', () => {
+        this.useMobileSelection((sel) => this.askAITranslate(sel));
       });
     }
 
@@ -644,61 +679,33 @@ export class MarkdownPatcher {
     // 右键时选区仍在 DOM 上，立即推断是同文本的第几处出现（供高亮/划线/批注定位到正确的那一处）
     const occurrence = getReadingModeOccurrence(selection);
 
-    const menu = new Menu();
+    // 自绘菜单（图标渲染不依赖 Obsidian 原生 Menu，见 selection-menu.ts）
+    const entries: SelectionMenuEntry[] = [
+      { icon: 'copy', label: '复制', onClick: () => this.copyText(selection) },
+      'separator',
+      { icon: 'highlighter', label: '添加高亮', onClick: () => this.addHighlight(selection, null, true, occurrence) },
+      { icon: 'underline', label: '添加划线', onClick: () => this.addUnderline(selection, null, true, occurrence) },
+      { icon: 'message-square', label: '添加批注', onClick: () => this.showCommentModal(selection, null, true, occurrence) },
+      'separator',
+      { icon: 'sparkles', label: 'AI 解释', onClick: () => this.askAIExplain(selection, e.clientX, e.clientY) },
+    ];
 
-    menu.addItem((item) => {
-      item.setTitle('复制');
-      item.setIcon('copy');
-      item.onClick(() => this.copyText(selection));
-    });
-
-    menu.addSeparator();
-
-    menu.addItem((item) => {
-      item.setTitle('添加高亮');
-      item.setIcon('highlighter');
-      item.onClick(() => {
-
-        this.addHighlight(selection, null, true, occurrence);
-      });
-    });
-
-    menu.addItem((item) => {
-      item.setTitle('添加划线');
-      item.setIcon('underline');
-      item.onClick(() => this.addUnderline(selection, null, true, occurrence));
-    });
-
-    menu.addItem((item) => {
-      item.setTitle('添加批注');
-      item.setIcon('message-square');
-      item.onClick(() => this.showCommentModal(selection, null, true, occurrence));
-    });
-
-    menu.addSeparator();
-
-    menu.addItem((item) => {
-      item.setTitle('AI 解释');
-      item.setIcon('sparkles');
-      item.onClick(() => this.askAIExplain(selection, e.clientX, e.clientY));
-    });
-
-    menu.addItem((item) => {
-      item.setTitle('AI 翻译');
-      item.setIcon('languages');
-      item.onClick(() => this.askAITranslate(selection, e.clientX, e.clientY));
-    });
-
-    // ── 查词：仅单词 / 短语（≤4 词）出现；FleurDict 在场走桥接，不在场走内置词典 ──
+    // ── 译（整合入口，对齐 fleurEpub）：单词/短语 → 查词+详解；句子 → AI 翻译 ──
     if (isDictWord(selection)) {
-      menu.addItem((item) => {
-        item.setTitle(getFleurDictBridge(this.plugin.app) ? '查词（FleurDict）' : '查词');
-        item.setIcon('book-open');
-        item.onClick(() => this.dictLookupDispatch(selection, e.clientX, e.clientY));
+      entries.push({
+        icon: 'book-open',
+        label: '查词 + 详解',
+        onClick: () => this.dictLookupDispatch(selection, e.clientX, e.clientY),
+      });
+    } else {
+      entries.push({
+        icon: 'languages',
+        label: 'AI 翻译',
+        onClick: () => this.askAITranslate(selection, e.clientX, e.clientY),
       });
     }
 
-    menu.showAtMouseEvent(e);
+    showSelectionMenu(e.clientX, e.clientY, entries);
   }
 
   /** 保存选中的文本（在鼠标释放时） */

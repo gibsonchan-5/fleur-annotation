@@ -12,6 +12,7 @@
 
 import { requestUrl } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
+import { lucideIcon } from './selection-menu';
 
 export interface DictPhonetic {
 	text: string;
@@ -194,11 +195,20 @@ export class StandaloneDictPopup {
 		const body = content.createDiv('fleur-annotation-dict-body');
 		body.createDiv('fleur-annotation-dict-loading').setText('查询中…');
 
-		// ── footer：AI 详解 + 加入生词本（与 FleurDict 同布局）──
+		// ── footer：AI 详解 + 加入生词本（与 FleurDict 同布局，同一套 lucide 图标）──
 		const footer = content.createDiv('fleur-annotation-dict-footer');
+		// 按钮 = 图标 + 文案；反馈态只换文案，图标保留
+		const mkActionBtn = (cls: string, icon: string, text: string): { btn: HTMLButtonElement; label: HTMLElement } => {
+			const btn = footer.createEl('button', { cls: `fleur-annotation-dict-action-btn ${cls}` });
+			const svg = lucideIcon(icon, 14);
+			if (svg) btn.appendChild(svg);
+			const label = btn.createSpan('fleur-annotation-dict-btn-label');
+			label.setText(text);
+			btn.addEventListener('mousedown', (e) => e.stopPropagation());
+			return { btn, label };
+		};
 		if (this.opts.onAIDetail) {
-			const aiBtn = footer.createEl('button', { text: '✨ AI 详解', cls: 'fleur-annotation-dict-action-btn fleur-annotation-dict-ai-btn' });
-			aiBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+			const { btn: aiBtn } = mkActionBtn('fleur-annotation-dict-ai-btn', 'sparkles', 'AI 详解');
 			aiBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
 				this.opts.onAIDetail?.();
@@ -206,17 +216,16 @@ export class StandaloneDictPopup {
 			});
 		}
 		if (this.opts.onAddToWordbook) {
-			const addBtn = footer.createEl('button', { text: '+ 加入生词本', cls: 'fleur-annotation-dict-action-btn fleur-annotation-dict-add-btn' });
-			addBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+			const { btn: addBtn, label: addLabel } = mkActionBtn('fleur-annotation-dict-add-btn', 'plus', '加入生词本');
 			addBtn.addEventListener('click', (e) => {
 				e.stopPropagation();
 				this.opts.onAddToWordbook?.();
 				// 还原式反馈（对齐 FleurDict）：2 秒后恢复可点，方便纠误
-				addBtn.setText('✓ 已添加');
+				addLabel.setText('已添加');
 				addBtn.addClass('fleur-annotation-dict-added');
 				setTimeout(() => {
 					if (this.closed) return;
-					addBtn.setText('+ 加入生词本');
+					addLabel.setText('加入生词本');
 					addBtn.removeClass('fleur-annotation-dict-added');
 				}, 2000);
 			});

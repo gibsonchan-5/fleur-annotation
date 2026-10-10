@@ -2,9 +2,7 @@ import { MarkdownRenderer, Notice, Platform } from 'obsidian';
 import type FleurAnnotationPlugin from './main';
 import { AIService } from './ai-service';
 import { resolveSystemPrompt, resolveAskHint } from './ai-prompts';
-
-const ICON_SEND = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-const ICON_STOP = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>`;
+import { lucideIcon } from './selection-menu';
 
 export class AIChatPanel {
   private panelEl: HTMLElement | null = null;
@@ -151,36 +149,29 @@ export class AIChatPanel {
     };
     setTimeout(() => document.addEventListener('mousedown', this.clickOutsideHandler!), 50);
 
-    // 标题栏
+    // 标题栏:徽标 + 标题;右侧展开(移动端)/关闭按钮
     const header = this.panelEl.createDiv();
     header.addClass('fleur-ai-header');
-    // 拖拽仅桌面；移动端以展开/收起替代拖拽（对齐 fleurEpub 两级形态）
+    // 拖拽仅桌面;移动端以展开/收起替代拖拽(对齐 fleurEpub 两级形态)
     if (!mobile) header.addEventListener('mousedown', (e) => this.onDragStart(e));
 
-    const title = header.createSpan({ text: '阅读助手' });
+    const headerLeft = header.createDiv('fleur-ai-header-left');
+    const brandIcon = headerLeft.createSpan('fleur-ai-title-icon');
+    const brandSvg = lucideIcon('sparkles', 15);
+    if (brandSvg) brandIcon.appendChild(brandSvg);
+
+    const title = headerLeft.createSpan({ text: '阅读助手' });
     title.addClass('fleur-ai-title');
 
-    // 移动端：展开/收起按钮（底部轻量卡片 ↔ 大半屏对话，微信读书式）
+    // 移动端:展开/收起按钮(底部轻量卡片 ↔ 大半屏对话,微信读书式)
     if (mobile) {
       const expandBtn = header.createEl('button');
       expandBtn.addClass('fleur-ai-expand-btn');
       expandBtn.setAttribute('aria-label', '展开对话');
       const setExpandIcon = (collapsed: boolean) => {
         expandBtn.empty();
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('width', '18');
-        svg.setAttribute('height', '18');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('fill', 'none');
-        svg.setAttribute('stroke', 'currentColor');
-        svg.setAttribute('stroke-width', '2');
-        svg.setAttribute('stroke-linecap', 'round');
-        svg.setAttribute('stroke-linejoin', 'round');
-        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-        // 收起态显示向上箭头（展开），展开态显示向下箭头（收回卡片）
-        poly.setAttribute('points', collapsed ? '18 15 12 9 6 15' : '6 9 12 15 18 9');
-        svg.appendChild(poly);
-        expandBtn.appendChild(svg);
+        const svg = lucideIcon(collapsed ? 'chevron-up' : 'chevron-down', 18);
+        if (svg) expandBtn.appendChild(svg);
       };
       setExpandIcon(true);
       expandBtn.addEventListener('click', () => {
@@ -194,8 +185,11 @@ export class AIChatPanel {
     }
 
     const closeBtn = header.createEl('button');
-    closeBtn.textContent = '×';
     closeBtn.addClass('fleur-ai-close-btn');
+    closeBtn.setAttribute('aria-label', '关闭');
+    const closeSvg = lucideIcon('x', 16);
+    if (closeSvg) closeBtn.appendChild(closeSvg);
+    else closeBtn.textContent = '×';
     closeBtn.addEventListener('click', () => this.close());
 
     // 内容区
@@ -217,49 +211,21 @@ export class AIChatPanel {
     });
 
     this.sendBtn = footer.createEl('button');
-    // 预渲染 SVG 图标（发送/停止）
+    this.sendBtn.addClass('fleur-ai-send-btn');
+    // 预渲染 SVG 图标（发送/停止，同一套 lucide 图标工厂）
     const iconWrap = this.sendBtn.createSpan();
     iconWrap.addClass('fleur-ai-send-icon');
-    
-    // 发送图标
-    const svgSend = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgSend.setAttribute('width', '18');
-    svgSend.setAttribute('height', '18');
-    svgSend.setAttribute('viewBox', '0 0 24 24');
-    svgSend.setAttribute('fill', 'none');
-    svgSend.setAttribute('stroke', 'currentColor');
-    svgSend.setAttribute('stroke-width', '2');
-    svgSend.setAttribute('stroke-linecap', 'round');
-    svgSend.setAttribute('stroke-linejoin', 'round');
-    const lineSend = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    lineSend.setAttribute('x1', '22'); lineSend.setAttribute('y1', '2');
-    lineSend.setAttribute('x2', '11'); lineSend.setAttribute('y2', '13');
-    svgSend.appendChild(lineSend);
-    const polySend = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    polySend.setAttribute('points', '22 2 15 22 11 13 2 9 22 2');
-    svgSend.appendChild(polySend);
-    iconWrap.appendChild(svgSend);
-    this.sendIconEl = svgSend as unknown as HTMLSpanElement;
-    
-    // 停止图标
-    const svgStop = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgStop.setAttribute('width', '18');
-    svgStop.setAttribute('height', '18');
-    svgStop.setAttribute('viewBox', '0 0 24 24');
-    svgStop.setAttribute('fill', 'none');
-    svgStop.setAttribute('stroke', 'currentColor');
-    svgStop.setAttribute('stroke-width', '2');
-    svgStop.setAttribute('stroke-linecap', 'round');
-    svgStop.setAttribute('stroke-linejoin', 'round');
-    const rectStop = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rectStop.setAttribute('x', '6'); rectStop.setAttribute('y', '6');
-    rectStop.setAttribute('width', '12'); rectStop.setAttribute('height', '12');
-    rectStop.setAttribute('rx', '1');
-    svgStop.appendChild(rectStop);
-    svgStop.addClass('fleur-hidden');
-    iconWrap.appendChild(svgStop);
-    this.stopIconEl = svgStop as unknown as HTMLSpanElement;
-    this.sendBtn.addClass('fleur-ai-send-btn');
+    const svgSend = lucideIcon('send', 18);
+    if (svgSend) {
+      iconWrap.appendChild(svgSend);
+      this.sendIconEl = svgSend as unknown as HTMLSpanElement;
+    }
+    const svgStop = lucideIcon('square', 18);
+    if (svgStop) {
+      svgStop.addClass('fleur-hidden');
+      iconWrap.appendChild(svgStop);
+      this.stopIconEl = svgStop as unknown as HTMLSpanElement;
+    }
     this.sendBtn.addEventListener('click', () => this.onSendOrAbort());
 
     // 右下角尺寸调整手柄（仅桌面；移动端以展开/收起替代缩放）
@@ -359,40 +325,44 @@ export class AIChatPanel {
       const actions = msg.createDiv();
       actions.addClass('fleur-msg-actions');
       this.lastActionsEl = actions;
-
-      const makeBtn = (text: string, onClick: () => void) => {
-        const btn = actions.createEl('button', { text });
-        btn.addClass('fleur-msg-action-btn');
-        btn.addEventListener('click', onClick);
-        return btn;
-      };
-
-      const addWriteAnnotationBtn = (getContent: () => string) => {
-        const btn = makeBtn('写入批注', async () => {
-          const ok = await this.plugin.patcher.writeAIAnnotation(this.selectedText, getContent());
-          if (ok) {
-            btn.textContent = '已写入';
-            setTimeout(() => { btn.textContent = '写入批注'; }, 1500);
-          }
-        });
-        return btn;
-      };
-
-      makeBtn('复制', () => {
-        navigator.clipboard.writeText(content);
-        const btn = actions.querySelector('button')!;
-        btn.textContent = '已复制';
-        setTimeout(() => { btn.textContent = '复制'; }, 1500);
-      });
-
-      addWriteAnnotationBtn(() => content);
-
-      makeBtn('记入笔记', () => this.saveToNote(content));
-
-      makeBtn('重新生成', () => this.regenerate());
+      this.buildActionButtons(actions, () => content);
     }
 
     this.bodyEl.scrollTop = this.bodyEl.scrollHeight;
+  }
+
+  /** AI 消息的操作按钮（图标 + 文案），完成态与流式态共用 */
+  private buildActionButtons(actions: HTMLElement, getContent: () => string) {
+    const makeBtn = (iconName: string, text: string, onClick: (btn: HTMLElement, label: HTMLElement) => void) => {
+      const btn = actions.createEl('button');
+      btn.addClass('fleur-msg-action-btn');
+      const svg = lucideIcon(iconName, 13);
+      if (svg) btn.appendChild(svg);
+      const label = btn.createSpan('fleur-msg-action-label');
+      label.setText(text);
+      btn.addEventListener('click', () => onClick(btn, label));
+      return btn;
+    };
+    // 按下后短暂显示完成态文案，再恢复
+    const flash = (label: HTMLElement, done: string, reset: string) => {
+      label.setText(done);
+      setTimeout(() => label.setText(reset), 1500);
+    };
+
+    makeBtn('copy', '复制', (_btn, label) => {
+      navigator.clipboard.writeText(getContent());
+      flash(label, '已复制', '复制');
+    });
+    makeBtn('pen-line', '写入批注', (btn, label) => {
+      void this.plugin.patcher.writeAIAnnotation(this.selectedText, getContent()).then((ok) => {
+        if (ok) flash(label, '已写入', '写入批注');
+        else btn.addClass('is-failed');
+      });
+    });
+    makeBtn('file-plus', '记入笔记', (_btn, label) => {
+      void this.saveToNote(getContent()).then(() => flash(label, '已记入', '记入笔记'));
+    });
+    makeBtn('refresh-cw', '重新生成', () => this.regenerate());
   }
 
   private addStreamingChunk(content: string) {
@@ -410,37 +380,7 @@ export class AIChatPanel {
       const actions = msg.createDiv();
       actions.addClass('fleur-msg-actions');
       this.lastActionsEl = actions;
-
-      const makeBtn = (text: string, onClick: () => void) => {
-        const btn = actions.createEl('button', { text });
-        btn.addClass('fleur-msg-action-btn');
-        btn.addEventListener('click', onClick);
-        return btn;
-      };
-
-      const addWriteAnnotationBtn = (getContent: () => string) => {
-        const btn = makeBtn('写入批注', async () => {
-          const ok = await this.plugin.patcher.writeAIAnnotation(this.selectedText, getContent());
-          if (ok) {
-            btn.textContent = '已写入';
-            setTimeout(() => { btn.textContent = '写入批注'; }, 1500);
-          }
-        });
-        return btn;
-      };
-
-      makeBtn('复制', () => {
-        navigator.clipboard.writeText(this.rawMarkdown);
-        const btn = actions.querySelector('button')!;
-        btn.textContent = '已复制';
-        setTimeout(() => { btn.textContent = '复制'; }, 1500);
-      });
-
-      addWriteAnnotationBtn(() => this.rawMarkdown);
-
-      makeBtn('记入笔记', () => this.saveToNote(this.rawMarkdown));
-
-      makeBtn('重新生成', () => this.regenerate());
+      this.buildActionButtons(actions, () => this.rawMarkdown);
     }
 
     this.rawMarkdown += content;

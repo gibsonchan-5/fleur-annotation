@@ -1589,3 +1589,147 @@ body.fleur-annotation-dict-dragging {
 .fleur-annotation-wb-edit textarea {
 	resize: vertical;
 }
+
+/* ═══════════════ 自绘选区菜单（阅读模式右键） ═══════════════ */
+.fleur-selmenu {
+	position: fixed;
+	z-index: var(--layer-menu, 100);
+	min-width: 168px;
+	max-width: 260px;
+	padding: 5px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 10px;
+	box-shadow: var(--shadow-s);
+	animation: fleur-selmenu-in 90ms ease-out;
+}
+@keyframes fleur-selmenu-in {
+	from { opacity: 0; transform: translateY(2px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+.fleur-selmenu-item {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	cursor: var(--cursor);
+	user-select: none;
+}
+.fleur-selmenu-item:hover {
+	background: var(--background-modifier-hover);
+}
+.fleur-selmenu-item.is-danger {
+	color: var(--text-error);
+}
+.fleur-selmenu-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	flex: none;
+	color: var(--text-muted);
+}
+.fleur-selmenu-item.is-danger .fleur-selmenu-icon {
+	color: var(--text-error);
+}
+.fleur-selmenu-label {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.fleur-selmenu-sep {
+	height: 1px;
+	margin: 5px 8px;
+	background: var(--background-modifier-border);
+}
+
+/* ═══════════════ 阅读助手视觉升级(整体精修) ═══════════════ */
+.fleur-ai-panel {
+	border-radius: 12px;
+	border-color: var(--background-modifier-border-hover);
+	box-shadow:
+		0 2px 8px rgba(0, 0, 0, 0.06),
+		0 16px 48px rgba(0, 0, 0, 0.16);
+}
+.fleur-ai-header {
+	padding: 11px 14px 11px 16px;
+}
+.fleur-ai-header-left {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+.fleur-ai-title-icon {
+	display: flex;
+	align-items: center;
+	color: var(--interactive-accent);
+	opacity: 0.9;
+}
+.fleur-ai-title {
+	font-size: 13.5px;
+	font-weight: 600;
+}
+.fleur-ai-close-btn {
+	width: 28px;
+	height: 28px;
+	border-radius: 7px;
+	font-size: unset;
+}
+/* AI 消息操作按钮:图标 + 文案,幽灵样式,悬停浮起 */
+.fleur-msg-action-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 9px;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	font-size: 11.5px;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+.fleur-msg-action-btn svg {
+	opacity: 0.75;
+}
+.fleur-msg-action-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+.fleur-msg-action-btn:hover svg {
+	opacity: 1;
+}
+.fleur-msg-action-btn.is-failed {
+	color: var(--text-error);
+}
+/* 发送按钮:主操作用强调色,流式(停止)态降低饱和 */
+.fleur-ai-send-btn {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.fleur-ai-send-btn:hover {
+	background: var(--interactive-accent-hover);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.fleur-ai-send-btn.is-streaming {
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	box-shadow: none;
+}
+/* 查词弹窗按钮:图标 + 文案布局 */
+.fleur-annotation-dict-action-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 4px 12px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	transition: background 0.12s ease;
+}
+.fleur-annotation-dict-action-btn:hover {
+	background: var(--background-modifier-hover);
+}

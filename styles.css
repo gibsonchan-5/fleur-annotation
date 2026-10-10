@@ -1734,3 +1734,7 @@ body.fleur-annotation-dict-dragging {
 .fleur-annotation-dict-action-btn:hover {
 	background: var(--background-modifier-hover);
 }
+/* 发送/停止图标去掉内联基线偏移(否则停止方块在按钮里偏低) */
+.fleur-ai-send-icon svg {
+	display: block;
+}
